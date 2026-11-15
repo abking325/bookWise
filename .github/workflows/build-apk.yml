@@ -18,8 +18,8 @@ jobs:
 
       - name: Run actionlint
         run: |
-          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
-          "$(go env GOPATH)/bin/actionlint"
+          curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz" | tar -xz -C /tmp actionlint
+          /tmp/actionlint
 
   build-debug-apk:
     name: Test and Build Debug APK
@@ -37,11 +37,13 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install Android SDK Platform 36.1 and Build Tools
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-36.1" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          { yes || true; } | sdkmanager --licenses >/dev/null
+          { yes || true; } | sdkmanager "platforms;android-36.1" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4

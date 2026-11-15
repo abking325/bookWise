@@ -26,16 +26,19 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install Android SDK Platform 36.1 and Build Tools
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-36.1" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          { yes || true; } | sdkmanager --licenses >/dev/null
+          { yes || true; } | sdkmanager "platforms;android-36.1" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build and verify signed release APK when secrets are configured
+        id: release_build
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
@@ -44,6 +47,7 @@ jobs:
           chmod +x gradlew
           if [ -z "$KEYSTORE_BASE64" ] || [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
             echo "Production signing secrets are not configured; skipping release signing."
+            echo "apk_built=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "$KEYSTORE_BASE64" | base64 --decode > my-upload-key.jks
@@ -54,16 +58,18 @@ jobs:
           cp "$RELEASE_APK" BookWise-Offline-release.apk
           APKSIGNER="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -name apksigner | sort -V | tail -n 1)"
           "$APKSIGNER" verify --verbose --print-certs BookWise-Offline-release.apk
+          echo "apk_built=true" >> "$GITHUB_OUTPUT"
 
       - name: Upload Signed Release APK Artifact
+        if: steps.release_build.outputs.apk_built == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: BookWise-Offline-release.apk
           path: BookWise-Offline-release.apk
-          if-no-files-found: ignore
+          if-no-files-found: error
 
       - name: Publish Release to GitHub Releases
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && steps.release_build.outputs.apk_built == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: BookWise-Offline-release.apk
