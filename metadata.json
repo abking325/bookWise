@@ -1,0 +1,6 @@
+{
+  "name": "BookWise Offline",
+  "description": "Offline digital reading library with 3D book carousel, English & Amharic editions, distraction-free reader, and native offline Text-to-Speech.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
