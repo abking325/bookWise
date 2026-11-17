@@ -19,11 +19,12 @@ A distraction-free, 100% offline digital reading library for Android built with 
 - `app/src/main/java/com/example/data/importer/` — Offline TXT/EPUB/PDF/BookWise importer & ZIP backup manager
 - `app/src/main/java/com/example/tts/` — Native `OfflineTtsManager` and `TtsPlaybackService` media foreground service
 - `app/src/main/java/com/example/ui/` — Theme, 3D carousel, cover cropper, floating TTS player, navigation shell, and all 8 core screens
-- `.github/workflows/build-apk.yml` — Automated CI tests & APK builds
+- `.github/workflows/build-apk.yml` — Automated CI workflow validation, clean tests, debug APK build, signature/integrity checks, and artifact upload
+- `.github/workflows/release-apk.yml` — Optional signed release APK workflow (`v*` tags / manual dispatch)
 
 ## Building & Installing
 
-### Local Gradle Build
+### Local Gradle Build (JDK 21 / Gradle 9.3.1 / AGP 9.1.1)
 ```bash
 ./gradlew :app:testDebugUnitTest
 ./gradlew assembleDebug
@@ -32,9 +33,12 @@ The installable APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
 
 ### GitHub Actions Automatic APK Generation
 1. Push this repository to GitHub.
-2. Open the **Actions** tab and run **Build BookWise Offline APK** (or push to `main` / tag `v1.0.0`).
-3. Download the `BookWise-Offline-debug-apk` artifact or release asset.
-4. For signed release APKs on tagged builds (`v*`), configure repository secrets `KEYSTORE_BASE64`, `STORE_PASSWORD`, and `KEY_PASSWORD`.
+2. Open the **Actions** tab and run **Build BookWise Offline APK** (or push to any branch / trigger manually).
+3. Download **`BookWise-Offline.apk`** from the workflow run's **Artifacts** section (SHA-256 checksum and test/build diagnostics are available in **`build-diagnostics`**).
+
+### Consistent APK Signing Strategy
+- **Debug Builds (`BookWise-Offline.apk`)**: Decodes the repository's shared `debug.keystore.base64` (falling back to `keytool` generation only if missing), ensuring a consistent signing certificate (`applicationId`: `com.aistudio.bookwise.kmpzqx`) so future APK updates install cleanly over previous builds without losing local books, reading progress, or settings.
+- **Production Release Builds (Optional)**: Never commit private `.jks` signing keys. Configure repository secrets `KEYSTORE_BASE64`, `STORE_PASSWORD`, and `KEY_PASSWORD` to build `BookWise-Offline-release.apk` via `.github/workflows/release-apk.yml`.
 
 ## Backup & Migration Instructions
 
