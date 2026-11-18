@@ -7,21 +7,22 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.model.AppThemeMode
 import com.example.model.ReaderTheme
 
 private val BookWiseLightScheme =
   lightColorScheme(
-    primary = DeepInkNavy,
+    primary = InkBlack,
     onPrimary = PureWhite,
-    primaryContainer = WarmStoneContainer,
-    onPrimaryContainer = DeepInkNavy,
-    secondary = AntiqueBronze,
+    primaryContainer = SoftPaperSurface,
+    onPrimaryContainer = InkBlack,
+    secondary = TerracottaAccent,
     onSecondary = PureWhite,
-    secondaryContainer = AntiqueBronzeContainer,
+    secondaryContainer = TerracottaContainer,
     onSecondaryContainer = InkBlack,
-    tertiary = SlateSecondary,
+    tertiary = MutedTertiary,
     onTertiary = PureWhite,
     background = PureWhite,
     onBackground = InkBlack,
@@ -31,7 +32,7 @@ private val BookWiseLightScheme =
     onSurfaceVariant = SlateSecondary,
     surfaceContainerLowest = PureWhite,
     surfaceContainerLow = SoftPaperSurface,
-    surfaceContainer = WarmStoneContainer,
+    surfaceContainer = SoftPaperSurface,
     surfaceContainerHigh = ColorTokens.LightHigh,
     outline = HairlineLight,
     outlineVariant = HairlineLight,
@@ -41,13 +42,13 @@ private val BookWiseLightScheme =
 
 private val BookWiseDarkScheme =
   darkColorScheme(
-    primary = WarmGoldDark,
+    primary = IvoryText,
     onPrimary = DarkBackground,
-    primaryContainer = WarmGoldDarkContainer,
+    primaryContainer = DarkSurfaceContainer,
     onPrimaryContainer = IvoryText,
-    secondary = WarmGoldDark,
+    secondary = WarmTerracottaDark,
     onSecondary = DarkBackground,
-    secondaryContainer = DarkSurfaceContainer,
+    secondaryContainer = WarmTerracottaDarkContainer,
     onSecondaryContainer = IvoryText,
     tertiary = MutedAsh,
     onTertiary = DarkBackground,
@@ -68,23 +69,23 @@ private val BookWiseDarkScheme =
   )
 
 private object ColorTokens {
-  val LightHigh = androidx.compose.ui.graphics.Color(0xFFECEAE3)
-  val DarkHigh = androidx.compose.ui.graphics.Color(0xFF282D37)
-  val DarkError = androidx.compose.ui.graphics.Color(0xFFE28B8B)
+  val LightHigh = Color(0xFFF1F0EC)
+  val DarkHigh = Color(0xFF282827)
+  val DarkError = Color(0xFFE28B8B)
 }
 
 val BookWiseShapes =
   Shapes(
     extraSmall = RoundedCornerShape(4.dp),
-    small = RoundedCornerShape(8.dp),
-    medium = RoundedCornerShape(12.dp),
-    large = RoundedCornerShape(16.dp),
-    extraLarge = RoundedCornerShape(24.dp),
+    small = RoundedCornerShape(6.dp),
+    medium = RoundedCornerShape(10.dp),
+    large = RoundedCornerShape(14.dp),
+    extraLarge = RoundedCornerShape(20.dp),
   )
 
 @Composable
 fun BookWiseTheme(
-  themeMode: AppThemeMode = AppThemeMode.SYSTEM,
+  themeMode: AppThemeMode = AppThemeMode.LIGHT,
   content: @Composable () -> Unit,
 ) {
   val systemDark = isSystemInDarkTheme()
@@ -106,9 +107,10 @@ fun BookWiseTheme(
 
 fun readerPaletteFor(theme: ReaderTheme): ReaderPalette =
   when (theme) {
-    ReaderTheme.PURE_WHITE -> ReaderPureWhitePalette
     ReaderTheme.SOFT_PAPER -> ReaderSoftPaperPalette
+    ReaderTheme.PURE_WHITE -> ReaderPureWhitePalette
     ReaderTheme.SEPIA -> ReaderSepiaPalette
+    ReaderTheme.MINT -> ReaderMintPalette
     ReaderTheme.DARK_CHARCOAL -> ReaderDarkCharcoalPalette
     ReaderTheme.PURE_BLACK -> ReaderPureBlackPalette
   }

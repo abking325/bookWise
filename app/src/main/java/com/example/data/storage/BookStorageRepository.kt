@@ -3,6 +3,7 @@ package com.example.data.storage
 import android.content.Context
 import android.net.Uri
 import com.example.model.AppSettings
+import com.example.model.AudioProgress
 import com.example.model.Book
 import com.example.model.BookEdition
 import com.example.model.BookEditorDraft
@@ -16,6 +17,7 @@ import com.example.model.Highlight
 import com.example.model.LanguageCode
 import com.example.model.ReadingProgress
 import com.example.model.ReadingStatus
+import com.example.model.TocEntry
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
@@ -138,6 +140,7 @@ class BookStorageRepository(private val context: Context) {
       val editionsMap = linkedMapOf<String, BookEdition>()
       for ((lang, drafts) in spec.editionChapters) {
         val metas = writeChaptersToDisk(spec.book.id, lang, drafts)
+        val toc = metas.map { m -> TocEntry(title = m.title, chapterId = m.id, chapterIndex = m.index, role = m.role) }
         editionsMap[lang] =
           BookEdition(
             languageCode = lang,
@@ -145,6 +148,7 @@ class BookStorageRepository(private val context: Context) {
             bundledCoverKey = coverKeys[spec.book.id],
             accentColorHex = accentHexes[spec.book.id] ?: "#162032",
             chapters = metas,
+            tocEntries = toc,
             progress = ReadingProgress(),
           )
       }
@@ -168,7 +172,7 @@ class BookStorageRepository(private val context: Context) {
         if (metaFile.exists()) {
           runCatching {
             val bookJson = JSONObject(metaFile.readText())
-            loaded.add(BookJsonSerializer.bookFromJson(bookJson))
+            loaded.add(hydrateEditionProgressFiles(BookJsonSerializer.bookFromJson(bookJson)))
           }
         }
       }
@@ -179,13 +183,44 @@ class BookStorageRepository(private val context: Context) {
         val metaFile = File(folder, "metadata.json")
         if (metaFile.exists()) {
           runCatching {
-            loaded.add(BookJsonSerializer.bookFromJson(JSONObject(metaFile.readText())))
+            loaded.add(
+              hydrateEditionProgressFiles(
+                BookJsonSerializer.bookFromJson(JSONObject(metaFile.readText()))
+              )
+            )
           }
         }
       }
     }
     _books.value = loaded
     writeIndexLocked(loaded)
+  }
+
+  private fun hydrateEditionProgressFiles(book: Book): Book {
+    val updatedEditions = linkedMapOf<String, BookEdition>()
+    book.editions.forEach { (lang, ed) ->
+      var hydrated = ed
+      val progFile = editionProgressFile(book.id, lang)
+      if (progFile.exists()) {
+        runCatching {
+          val p = BookJsonSerializer.progressFromJson(JSONObject(progFile.readText()))
+          if (p.lastUpdatedAt >= hydrated.progress.lastUpdatedAt) {
+            hydrated = hydrated.copy(progress = p)
+          }
+        }
+      }
+      val audioFile = editionAudioProgressFile(book.id, lang)
+      if (audioFile.exists()) {
+        runCatching {
+          val a = BookJsonSerializer.audioProgressFromJson(JSONObject(audioFile.readText()))
+          if (a.lastUpdatedAt >= hydrated.audioProgress.lastUpdatedAt) {
+            hydrated = hydrated.copy(audioProgress = a)
+          }
+        }
+      }
+      updatedEditions[lang] = hydrated
+    }
+    return book.copy(editions = updatedEditions)
   }
 
   fun bookFolder(bookId: String): File = File(booksRootDir, bookId)
@@ -195,6 +230,9 @@ class BookStorageRepository(private val context: Context) {
 
   private fun editionProgressFile(bookId: String, languageCode: String): File =
     File(bookFolder(bookId), "editions/$languageCode/progress.json")
+
+  private fun editionAudioProgressFile(bookId: String, languageCode: String): File =
+    File(bookFolder(bookId), "editions/$languageCode/audio_progress.json")
 
   private fun writeChaptersToDisk(
     bookId: String,
@@ -220,6 +258,9 @@ class BookStorageRepository(private val context: Context) {
         fileName = fileName,
         wordCount = words,
         estimatedMinutes = (words / 220).coerceAtLeast(1),
+        role = draft.role,
+        confidence = draft.confidence,
+        needsReview = draft.needsReview,
       )
     }
   }
@@ -252,13 +293,22 @@ class BookStorageRepository(private val context: Context) {
         val bookId = existing?.id ?: "book_${UUID.randomUUID().toString().take(12)}"
         val lang = draft.languageCode.lowercase().ifBlank { "en" }
 
+        val activeDrafts = draft.chapters.filter { it.isIncluded }
         val preparedChapters =
-          if (draft.chapters.isEmpty()) {
+          if (activeDrafts.isEmpty()) {
             listOf(EditableChapterDraft("ch_1", "Chapter 1", ""))
           } else {
-            draft.chapters
+            activeDrafts
           }
         val chapterMetas = writeChaptersToDisk(bookId, lang, preparedChapters)
+        val tocList =
+          if (draft.showTableOfContents) {
+            chapterMetas.map { m ->
+              TocEntry(title = m.title, chapterId = m.id, chapterIndex = m.index, role = m.role)
+            }
+          } else {
+            emptyList()
+          }
         val existingEdition = existing?.editions?.get(lang)
         val coverPath = persistCoverIfNeeded(bookId, lang, draft.coverImagePath)
 
@@ -270,7 +320,9 @@ class BookStorageRepository(private val context: Context) {
             bundledCoverKey = draft.bundledCoverKey ?: existingEdition?.bundledCoverKey,
             accentColorHex = existingEdition?.accentColorHex ?: "#162032",
             chapters = chapterMetas,
+            tocEntries = tocList,
             progress = existingEdition?.progress ?: ReadingProgress(),
+            audioProgress = existingEdition?.audioProgress ?: AudioProgress(),
           )
 
         val mergedEditions =
@@ -371,7 +423,14 @@ class BookStorageRepository(private val context: Context) {
       edition.chapters.map { meta ->
         val file = File(dir, meta.fileName)
         val body = if (file.exists()) file.readText() else ""
-        EditableChapterDraft(id = meta.id, title = meta.title, bodyText = body)
+        EditableChapterDraft(
+          id = meta.id,
+          title = meta.title,
+          bodyText = body,
+          role = meta.role,
+          confidence = meta.confidence,
+          needsReview = meta.needsReview,
+        )
       }
     }
 
@@ -390,11 +449,152 @@ class BookStorageRepository(private val context: Context) {
       ChapterContent(meta = meta, paragraphs = paragraphs)
     }
 
+  /**
+   * Canonical offline paragraph segmentation shared by Reader, Search, TTS, Highlights, and Bookmarks.
+   * Handles:
+   * - Double-newline breaks
+   * - Single-newline intentional breaks vs soft-wrapped PDF/TXT lines + de-hyphenation
+   * - Overlong unformatted blocks (>680 chars without line breaks) split cleanly on English/Amharic sentence boundaries
+   */
   fun splitIntoParagraphs(raw: String): List<String> {
     val normalized = raw.replace("\r\n", "\n").replace('\r', '\n').trim()
     if (normalized.isEmpty()) return listOf("")
-    val blocks = normalized.split(Regex("\n\\s*\n+")).map { it.trim() }.filter { it.isNotEmpty() }
-    return if (blocks.isNotEmpty()) blocks else listOf(normalized)
+
+    val rawBlocks = normalized.split(Regex("\n[ \t]*\n+")).map { it.trim() }.filter { it.isNotEmpty() }
+    val logicalParagraphs = mutableListOf<String>()
+
+    for (block in rawBlocks) {
+      val lines = block.lines().map { it.trimEnd() }.filter { it.isNotBlank() }
+      if (lines.size <= 1) {
+        val single = lines.firstOrNull()?.trim().orEmpty()
+        if (single.isNotEmpty()) logicalParagraphs.addAll(chunkOverlongBlock(single))
+        continue
+      }
+
+      // Inspect whether single newlines in this block look like wrapped PDF lines or distinct paragraphs
+      val lengths = lines.map { it.trim().length }
+      val sortedLengths = lengths.sorted()
+      val medianLen = sortedLengths[sortedLengths.size / 2].coerceAtLeast(1)
+      val unwrappedCount =
+        lines.dropLast(1).count { line ->
+          val t = line.trimEnd()
+          !endsSentence(t) && !t.endsWith(":")
+        }
+      val looksSoftWrapped = lines.size >= 3 && unwrappedCount.toFloat() / (lines.size - 1) > 0.40f && medianLen >= 38
+
+      if (!looksSoftWrapped) {
+        // Repair hyphenated wraps and lowercase continuations, then treat remaining single-newline breaks as intentional paragraphs
+        val mergedLines = mutableListOf<String>()
+        for (line in lines) {
+          val cleaned = line.trim()
+          if (cleaned.isEmpty()) continue
+          if (mergedLines.isNotEmpty()) {
+            val prev = mergedLines.last()
+            val isHyphenWrap =
+              prev.endsWith("-") &&
+                !prev.endsWith("--") &&
+                !prev.endsWith(" -") &&
+                cleaned.firstOrNull()?.isLowerCase() == true
+            val isLowercaseContinuation =
+              !endsSentence(prev) &&
+                !prev.endsWith(":") &&
+                cleaned.firstOrNull()?.isLowerCase() == true
+            if (isHyphenWrap) {
+              mergedLines[mergedLines.lastIndex] = prev.dropLast(1) + cleaned
+              continue
+            } else if (isLowercaseContinuation) {
+              mergedLines[mergedLines.lastIndex] = "$prev $cleaned"
+              continue
+            }
+          }
+          mergedLines.add(cleaned)
+        }
+        for (para in mergedLines) {
+          logicalParagraphs.addAll(chunkOverlongBlock(para))
+        }
+      } else {
+        // Reconstruct wrapped paragraphs by joining soft-wrapped lines and breaking on real paragraph cues
+        val current = StringBuilder()
+        for (i in lines.indices) {
+          val trimmed = lines[i].trim()
+          if (trimmed.isEmpty()) continue
+          if (current.isEmpty()) {
+            current.append(trimmed)
+          } else {
+            val curStr = current.toString()
+            if (
+              curStr.endsWith("-") &&
+                !curStr.endsWith("--") &&
+                !curStr.endsWith(" -") &&
+                trimmed.firstOrNull()?.isLowerCase() == true
+            ) {
+              current.deleteCharAt(current.length - 1).append(trimmed)
+            } else {
+              current.append(' ').append(trimmed)
+            }
+          }
+
+          val isLast = i == lines.lastIndex
+          if (!isLast) {
+            val nextLine = lines[i + 1].trim()
+            val curEndedSentence = endsSentence(trimmed)
+            val isShortTrailingLine = trimmed.length < (medianLen * 0.68f)
+            val nextStartsParagraph =
+              nextLine.startsWith("\"") ||
+                nextLine.startsWith("“") ||
+                nextLine.startsWith("—") ||
+                nextLine.startsWith("- ") ||
+                nextLine.startsWith("•") ||
+                (nextLine.firstOrNull()?.isUpperCase() == true) ||
+                (nextLine.firstOrNull() in '\u1200'..'\u135A')
+            if (curEndedSentence && isShortTrailingLine && nextStartsParagraph) {
+              logicalParagraphs.addAll(chunkOverlongBlock(current.toString().trim()))
+              current.clear()
+            }
+          }
+        }
+        if (current.isNotEmpty()) {
+          logicalParagraphs.addAll(chunkOverlongBlock(current.toString().trim()))
+        }
+      }
+    }
+
+    return logicalParagraphs.ifEmpty { listOf(normalized) }
+  }
+
+  private fun endsSentence(text: String): Boolean {
+    val t = text.trimEnd()
+    if (t.isEmpty()) return false
+    val last = t.last()
+    if (last in charArrayOf('.', '!', '?', '።', '!', '?', '…')) return true
+    if (t.length >= 2 && last in charArrayOf('"', '”', '\'', '’', ')')) {
+      val prev = t[t.length - 2]
+      return prev in charArrayOf('.', '!', '?', '።')
+    }
+    return false
+  }
+
+  private fun chunkOverlongBlock(text: String): List<String> {
+    if (text.length <= 680) return listOf(text)
+    val sentenceBreaks = Regex("""(?<=[.!?።][\"”’\)\]]?)\s+""")
+    val sentences = text.split(sentenceBreaks).map { it.trim() }.filter { it.isNotEmpty() }
+    if (sentences.size <= 1) return listOf(text)
+
+    val chunks = mutableListOf<String>()
+    val current = StringBuilder()
+    var count = 0
+    for (s in sentences) {
+      if (current.isNotEmpty() && (current.length + s.length > 520 || count >= 4)) {
+        chunks.add(current.toString().trim())
+        current.clear()
+        count = 0
+      }
+      if (current.isNotEmpty()) current.append(' ')
+      current.append(s)
+      count++
+    }
+    if (current.isNotEmpty()) chunks.add(current.toString().trim())
+    return chunks.ifEmpty { listOf(text) }
   }
 
   suspend fun searchInBook(
@@ -448,7 +648,7 @@ class BookStorageRepository(private val context: Context) {
           when {
             progress.overallProgress >= 0.98f -> ReadingStatus.COMPLETED
             progress.overallProgress > 0.01f || progress.chapterIndex > 0 || progress.paragraphIndex > 0 ->
-              ReadingStatus.READING
+              if (book.readingStatus == ReadingStatus.COMPLETED) ReadingStatus.COMPLETED else ReadingStatus.READING
             else -> book.readingStatus
           }
         val updatedBook =
@@ -463,6 +663,62 @@ class BookStorageRepository(private val context: Context) {
         AtomicFileWriter.writeTextAtomically(
           editionProgressFile(bookId, languageCode),
           BookJsonSerializer.progressToJson(progress).toString(2),
+        )
+        writeBookMetadataLocked(updatedBook)
+      }
+    }
+
+  suspend fun resetReadingProgress(
+    bookId: String,
+    languageCode: String,
+  ) =
+    withContext(Dispatchers.IO) {
+      mutex.withLock {
+        val list = _books.value.toMutableList()
+        val idx = list.indexOfFirst { it.id == bookId }
+        if (idx < 0) return@withLock
+        val book = list[idx]
+        val ed = book.editions[languageCode] ?: return@withLock
+        val resetProg = ReadingProgress(lastUpdatedAt = System.currentTimeMillis())
+        val updatedEd = ed.copy(progress = resetProg)
+        val updatedBook =
+          book.copy(
+            readingStatus = ReadingStatus.UNREAD,
+            updatedAt = System.currentTimeMillis(),
+            editions = book.editions.toMutableMap().apply { put(languageCode, updatedEd) },
+          )
+        list[idx] = updatedBook
+        _books.value = list
+        AtomicFileWriter.writeTextAtomically(
+          editionProgressFile(bookId, languageCode),
+          BookJsonSerializer.progressToJson(resetProg).toString(2),
+        )
+        writeBookMetadataLocked(updatedBook)
+      }
+    }
+
+  suspend fun updateAudioProgress(
+    bookId: String,
+    languageCode: String,
+    audioProgress: AudioProgress,
+  ) =
+    withContext(Dispatchers.IO) {
+      mutex.withLock {
+        val list = _books.value.toMutableList()
+        val idx = list.indexOfFirst { it.id == bookId }
+        if (idx < 0) return@withLock
+        val book = list[idx]
+        val ed = book.editions[languageCode] ?: return@withLock
+        val updatedEd = ed.copy(audioProgress = audioProgress)
+        val updatedBook =
+          book.copy(
+            editions = book.editions.toMutableMap().apply { put(languageCode, updatedEd) },
+          )
+        list[idx] = updatedBook
+        _books.value = list
+        AtomicFileWriter.writeTextAtomically(
+          editionAudioProgressFile(bookId, languageCode),
+          BookJsonSerializer.audioProgressToJson(audioProgress).toString(2),
         )
         writeBookMetadataLocked(updatedBook)
       }
@@ -638,7 +894,6 @@ class BookStorageRepository(private val context: Context) {
           categoriesFile,
           BookJsonSerializer.categoriesToJson(cats).toString(2),
         )
-        // Update books referencing old category name
         val updatedBooks =
           _books.value.map { b ->
             if (b.category.equals(oldName, ignoreCase = true)) {
@@ -776,9 +1031,15 @@ class BookStorageRepository(private val context: Context) {
             AtomicFileWriter.writeBytesAtomically(dest, coverBytes)
             coverPath = dest.absolutePath
           }
+          val finalMetas = metas.ifEmpty { ed.chapters }
+          val toc =
+            ed.tocEntries.ifEmpty {
+              finalMetas.map { m -> TocEntry(title = m.title, chapterId = m.id, chapterIndex = m.index, role = m.role) }
+            }
           newEditions[lang] =
             ed.copy(
-              chapters = metas.ifEmpty { ed.chapters },
+              chapters = finalMetas,
+              tocEntries = toc,
               coverImagePath = coverPath,
             )
         }

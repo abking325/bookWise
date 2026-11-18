@@ -5,12 +5,18 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,15 +25,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.Category
-import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.LightMode
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -46,12 +56,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -62,12 +68,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
@@ -91,7 +99,8 @@ import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.LibraryListScreen
 import com.example.ui.screens.ReaderScreen
 import com.example.ui.screens.SettingsScreen
-import com.example.ui.theme.PlayfairDisplayFamily
+import com.example.ui.theme.BodoniModaFamily
+import com.example.ui.theme.ManropeFamily
 import com.example.viewmodel.BookWiseViewModel
 import kotlinx.coroutines.launch
 
@@ -123,6 +132,7 @@ private data class TopLevelDestination(
   val label: String,
   val icon: ImageVector,
   val testTag: String,
+  val isEditor: Boolean = false,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -195,7 +205,7 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
     }
   }
 
-  val topDestinations =
+  val sectionNavDestinations =
     listOf(
       TopLevelDestination(Routes.HOME, strings.navHome, Icons.Filled.Home, "nav_home"),
       TopLevelDestination(
@@ -204,9 +214,29 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
         Icons.AutoMirrored.Filled.MenuBook,
         "nav_full_books",
       ),
-      TopLevelDestination(Routes.SUMMARIES, strings.navSummaries, Icons.Filled.Summarize, "nav_summaries"),
-      TopLevelDestination(Routes.CATEGORIES, strings.navCategories, Icons.Filled.Category, "nav_categories"),
+      TopLevelDestination(
+        Routes.SUMMARIES,
+        strings.navSummaries,
+        Icons.Filled.Summarize,
+        "nav_summaries",
+      ),
+      TopLevelDestination(
+        Routes.CATEGORIES,
+        strings.navCategories,
+        Icons.Filled.Category,
+        "nav_categories",
+      ),
     )
+
+  val allTopDestinations =
+    sectionNavDestinations +
+      TopLevelDestination(
+        Routes.EDITOR,
+        strings.navAddBook,
+        Icons.Filled.AddCircleOutline,
+        "nav_add_book",
+        isEditor = true,
+      )
 
   val isTopLevelRoute =
     currentRoute == Routes.HOME ||
@@ -215,11 +245,35 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
       currentRoute == Routes.CATEGORIES ||
       currentRoute == Routes.SETTINGS
 
+  fun navigateDestination(dest: TopLevelDestination) {
+    if (dest.isEditor) {
+      navController.navigate(Routes.editor()) { launchSingleTop = true }
+    } else {
+      navController.navigate(dest.route) {
+        popUpTo(Routes.HOME) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+      }
+    }
+  }
+
   fun navigateTopLevel(route: String) {
     navController.navigate(route) {
       popUpTo(Routes.HOME) { saveState = true }
       launchSingleTop = true
       restoreState = true
+    }
+  }
+
+  fun openCategoryLibrary(catName: String) {
+    val hasFull = books.any { it.bookType == BookType.FULL_BOOK && it.category.equals(catName, ignoreCase = true) }
+    val hasSummary = books.any { it.bookType == BookType.SUMMARY && it.category.equals(catName, ignoreCase = true) }
+    if (!hasFull && hasSummary) {
+      summariesFilter = LibraryFilter(category = catName, sortOption = summariesFilter.sortOption)
+      navigateTopLevel(Routes.SUMMARIES)
+    } else {
+      fullBooksFilter = LibraryFilter(category = catName, sortOption = fullBooksFilter.sortOption)
+      navigateTopLevel(Routes.FULL_BOOKS)
     }
   }
 
@@ -238,47 +292,75 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
     viewModel.ttsManager.updateSpeechRate(next)
   }
 
+  fun triggerExportZip(book: Book) {
+    exportingBook = book
+    val safeName = book.title.replace(Regex("[^A-Za-z0-9_-]"), "_").take(32)
+    exportBookLauncher.launch("$safeName-bookwise.zip")
+  }
+
   val scaffoldContent: @Composable () -> Unit = {
     Scaffold(
+      containerColor = MaterialTheme.colorScheme.background,
       snackbarHost = { SnackbarHost(snackbarHostState) },
       contentWindowInsets = WindowInsets(0, 0, 0, 0),
       topBar = {
         if (isTopLevelRoute) {
-          Column(modifier = Modifier.statusBarsPadding()) {
-            TopAppBar(
-              colors =
-                TopAppBarDefaults.topAppBarColors(
-                  containerColor = MaterialTheme.colorScheme.background,
-                ),
-              navigationIcon = {
+          Column(
+            modifier =
+              Modifier.fillMaxWidth()
+                .background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding(),
+          ) {
+            // Section A: Single compact editorial header (wordmark + subtle subtitle; theme & settings on right)
+            Row(
+              modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 10.dp, top = 12.dp, bottom = 6.dp),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f),
+              ) {
                 if (settings.navigationStyle == NavigationStyle.HAMBURGER) {
                   IconButton(
                     onClick = { scope.launch { drawerState.open() } },
-                    modifier = Modifier.testTag("hamburger_menu_button"),
+                    modifier = Modifier.size(48.dp).testTag("hamburger_menu_button"),
                   ) {
                     Icon(Icons.Filled.Menu, contentDescription = "Open menu")
                   }
                 }
-              },
-              title = {
-                if (settings.navigationStyle != NavigationStyle.TOP_BAR) {
+                Column {
                   Text(
                     text = strings.appTitle,
-                    fontFamily = PlayfairDisplayFamily,
-                    style = MaterialTheme.typography.titleLarge,
+                    fontFamily = BodoniModaFamily,
+                    fontSize = 38.sp,
+                    lineHeight = 42.sp,
+                    letterSpacing = (-0.8).sp,
+                    fontWeight = FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onBackground,
+                  )
+                  Text(
+                    text = strings.editorialSubtitle,
+                    fontFamily = ManropeFamily,
+                    fontSize = 9.5.sp,
+                    letterSpacing = 1.6.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                   )
                 }
-              },
-              actions = {
+              }
+
+              Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(
                   onClick = { viewModel.toggleLightDarkQuick() },
                   modifier = Modifier.size(48.dp).testTag("quick_theme_toggle"),
                 ) {
                   Icon(
                     imageVector =
-                      if (settings.themeMode == AppThemeMode.DARK) Icons.Filled.LightMode
-                      else Icons.Filled.DarkMode,
+                      if (settings.themeMode == AppThemeMode.DARK) Icons.Outlined.LightMode
+                      else Icons.Outlined.DarkMode,
                     contentDescription = "Toggle light or dark mode",
+                    tint = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.size(21.dp),
                   )
                 }
                 IconButton(
@@ -286,45 +368,108 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
                   modifier = Modifier.size(48.dp).testTag("nav_settings_button"),
                 ) {
                   Icon(
-                    imageVector = Icons.Filled.Settings,
+                    imageVector = Icons.Outlined.Settings,
                     contentDescription = strings.navSettings,
                     tint =
-                      if (currentRoute == Routes.SETTINGS) MaterialTheme.colorScheme.primary
-                      else MaterialTheme.colorScheme.onSurface,
+                      if (currentRoute == Routes.SETTINGS) MaterialTheme.colorScheme.secondary
+                      else MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.size(21.dp),
                   )
                 }
-              },
-            )
+              }
+            }
 
-            // Default Top Navigation bar
+            // Section B: Clean horizontal underline navigation bar
             if (settings.navigationStyle == NavigationStyle.TOP_BAR) {
-              val selectedTabIdx = topDestinations.indexOfFirst { it.route == currentRoute }
-              if (selectedTabIdx >= 0 || currentRoute == Routes.SETTINGS) {
-                TabRow(
-                  selectedTabIndex = selectedTabIdx.coerceAtLeast(0),
-                  containerColor = MaterialTheme.colorScheme.background,
-                  divider = { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) },
+              BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val minWidth = maxWidth
+                Row(
+                  modifier =
+                    Modifier.fillMaxWidth()
+                      .horizontalScroll(rememberScrollState())
+                      .widthIn(min = minWidth)
+                      .padding(horizontal = 20.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                  topDestinations.forEachIndexed { idx, dest ->
-                    Tab(
-                      selected = currentRoute == dest.route,
-                      onClick = { navigateTopLevel(dest.route) },
-                      modifier = Modifier.testTag(dest.testTag),
-                      text = {
+                  Row(
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                  ) {
+                    sectionNavDestinations.forEach { dest ->
+                      val selected = currentRoute == dest.route
+                      Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Bottom,
+                        modifier =
+                          Modifier.defaultMinSize(minHeight = 48.dp)
+                            .clickable { navigateDestination(dest) }
+                            .padding(top = 12.dp)
+                            .testTag(dest.testTag),
+                      ) {
                         Text(
                           text = dest.label,
-                          style = MaterialTheme.typography.labelLarge,
-                          fontWeight =
-                            if (currentRoute == dest.route) FontWeight.SemiBold
-                            else FontWeight.Normal,
+                          fontFamily = ManropeFamily,
+                          fontSize = 12.sp,
+                          fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                          color =
+                            if (selected) MaterialTheme.colorScheme.onBackground
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
                           maxLines = 1,
-                          overflow = TextOverflow.Ellipsis,
+                          softWrap = false,
                         )
-                      },
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Box(
+                          modifier =
+                            Modifier.width(24.dp)
+                              .height(2.dp)
+                              .background(
+                                if (selected) MaterialTheme.colorScheme.onBackground
+                                else Color.Transparent
+                              )
+                        )
+                      }
+                    }
+                  }
+
+                  Spacer(modifier = Modifier.width(14.dp))
+
+                  Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier =
+                      Modifier.defaultMinSize(minHeight = 48.dp)
+                        .clickable { navController.navigate(Routes.editor()) { launchSingleTop = true } }
+                        .padding(horizontal = 4.dp)
+                        .testTag("nav_add_book"),
+                  ) {
+                    Icon(
+                      imageVector = Icons.Filled.Add,
+                      contentDescription = null,
+                      tint = MaterialTheme.colorScheme.secondary,
+                      modifier = Modifier.size(15.dp),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                      text = strings.navAddBook,
+                      fontFamily = ManropeFamily,
+                      fontSize = 12.sp,
+                      fontWeight = FontWeight.Medium,
+                      color = MaterialTheme.colorScheme.onBackground,
+                      maxLines = 1,
+                      softWrap = false,
                     )
                   }
                 }
               }
+              HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant,
+                thickness = 0.75.dp,
+              )
+            } else {
+              HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant,
+                thickness = 0.75.dp,
+              )
             }
           }
         }
@@ -333,13 +478,24 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
         if (isTopLevelRoute) {
           when (settings.navigationStyle) {
             NavigationStyle.FIXED_BOTTOM -> {
-              NavigationBar {
-                topDestinations.forEach { dest ->
+              NavigationBar(
+                containerColor = MaterialTheme.colorScheme.background,
+                tonalElevation = 0.dp,
+              ) {
+                allTopDestinations.forEach { dest ->
                   NavigationBarItem(
                     selected = currentRoute == dest.route,
-                    onClick = { navigateTopLevel(dest.route) },
+                    onClick = { navigateDestination(dest) },
                     icon = { Icon(dest.icon, contentDescription = dest.label) },
-                    label = { Text(dest.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    label = {
+                      Text(
+                        text = dest.label,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                      )
+                    },
                     modifier = Modifier.testTag(dest.testTag),
                   )
                 }
@@ -347,39 +503,40 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
             }
             NavigationStyle.FLOATING_BOTTOM -> {
               Box(
-                modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 14.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center,
               ) {
                 Surface(
                   shape = RoundedCornerShape(28.dp),
-                  tonalElevation = 6.dp,
-                  shadowElevation = 10.dp,
-                  color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                  tonalElevation = 2.dp,
+                  shadowElevation = 8.dp,
+                  color = MaterialTheme.colorScheme.background,
+                  border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant),
                 ) {
                   Row(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                   ) {
-                    topDestinations.forEach { dest ->
+                    allTopDestinations.forEach { dest ->
                       val selected = currentRoute == dest.route
                       Surface(
-                        onClick = { navigateTopLevel(dest.route) },
+                        onClick = { navigateDestination(dest) },
                         shape = RoundedCornerShape(22.dp),
                         color =
-                          if (selected) MaterialTheme.colorScheme.primaryContainer
-                          else MaterialTheme.colorScheme.surfaceContainerHigh,
+                          if (selected) MaterialTheme.colorScheme.primary
+                          else MaterialTheme.colorScheme.background,
                         modifier = Modifier.height(48.dp).testTag(dest.testTag),
                       ) {
                         Row(
                           verticalAlignment = Alignment.CenterVertically,
-                          modifier = Modifier.padding(horizontal = 12.dp),
+                          modifier = Modifier.padding(horizontal = if (selected) 12.dp else 10.dp),
                         ) {
                           Icon(
                             dest.icon,
                             contentDescription = dest.label,
                             tint =
-                              if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                              if (selected) MaterialTheme.colorScheme.onPrimary
                               else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp),
                           )
@@ -388,7 +545,8 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
                             Text(
                               text = dest.label,
                               style = MaterialTheme.typography.labelMedium,
-                              color = MaterialTheme.colorScheme.onPrimaryContainer,
+                              color = MaterialTheme.colorScheme.onPrimary,
+                              maxLines = 1,
                             )
                           }
                         }
@@ -418,10 +576,9 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
               onOpenBookDetails = { navController.navigate(Routes.bookDetails(it.id)) },
               onReadBook = { openReader(it) },
               onOpenAddBook = { navController.navigate(Routes.editor()) },
-              onOpenCategory = { catName ->
-                fullBooksFilter = fullBooksFilter.copy(category = catName)
-                navigateTopLevel(Routes.FULL_BOOKS)
-              },
+              onOpenCategory = { catName -> openCategoryLibrary(catName) },
+              onViewAllBooks = { navigateTopLevel(Routes.FULL_BOOKS) },
+              onViewAllCategories = { navigateTopLevel(Routes.CATEGORIES) },
               onImportBackup = {
                 importBackupFromHomeLauncher.launch(
                   arrayOf("application/zip", "application/json", "text/html", "*/*")
@@ -445,7 +602,10 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
               onFilterChange = { fullBooksFilter = it },
               onOpenBookDetails = { navController.navigate(Routes.bookDetails(it.id)) },
               onReadBook = { openReader(it) },
+              onEditBook = { b -> navController.navigate(Routes.editor(bookId = b.id, lang = b.defaultLanguageCode)) },
               onToggleFavorite = viewModel::toggleFavorite,
+              onExportBookZip = { b -> triggerExportZip(b) },
+              onDeleteBook = { b -> viewModel.deleteBook(b.id) },
               onAddBook = { type -> navController.navigate(Routes.editor(type = type)) },
             )
           }
@@ -465,7 +625,10 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
               onFilterChange = { summariesFilter = it },
               onOpenBookDetails = { navController.navigate(Routes.bookDetails(it.id)) },
               onReadBook = { openReader(it) },
+              onEditBook = { b -> navController.navigate(Routes.editor(bookId = b.id, lang = b.defaultLanguageCode)) },
               onToggleFavorite = viewModel::toggleFavorite,
+              onExportBookZip = { b -> triggerExportZip(b) },
+              onDeleteBook = { b -> viewModel.deleteBook(b.id) },
               onAddBook = { type -> navController.navigate(Routes.editor(type = type)) },
             )
           }
@@ -475,10 +638,7 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
               categories = categories,
               books = books,
               strings = strings,
-              onSelectCategory = { catName ->
-                fullBooksFilter = fullBooksFilter.copy(category = catName)
-                navigateTopLevel(Routes.FULL_BOOKS)
-              },
+              onSelectCategory = { catName -> openCategoryLibrary(catName) },
               onCreateCategory = viewModel::createCategory,
               onRenameCategory = viewModel::renameCategory,
               onDeleteCategory = viewModel::deleteCategory,
@@ -507,6 +667,11 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
                 onOpenReader = { bId, lang, ch, para ->
                   navController.navigate(Routes.reader(bId, lang, ch, para))
                 },
+                onResetProgress = viewModel::resetReadingProgress,
+                onStartAudio = { bId, lang, ch, para, sent ->
+                  ensureNotificationPermissionIfNeeded()
+                  viewModel.ttsManager.startReadingFromParagraph(bId, lang, ch, para, sent)
+                },
                 onEditEdition = { bId, lang ->
                   navController.navigate(Routes.editor(bookId = bId, lang = lang))
                 },
@@ -515,11 +680,7 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
                 },
                 onToggleFavorite = viewModel::toggleFavorite,
                 onSetStatus = viewModel::setReadingStatus,
-                onExportBookZip = { b ->
-                  exportingBook = b
-                  val safeName = b.title.replace(Regex("[^A-Za-z0-9_-]"), "_").take(32)
-                  exportBookLauncher.launch("$safeName-bookwise.zip")
-                },
+                onExportBookZip = { b -> triggerExportZip(b) },
                 onDeleteBook = { id ->
                   viewModel.deleteBook(id) { navController.popBackStack() }
                 },
@@ -561,6 +722,7 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
                 onLoadChapterAndAnnotations = viewModel::loadBookAnnotationsAndChapter,
                 onLoadChapter = viewModel::loadChapterOnly,
                 onSaveProgress = viewModel::saveReadingProgress,
+                onResetProgress = viewModel::resetReadingProgress,
                 onAddBookmark = viewModel::addBookmark,
                 onRemoveBookmark = viewModel::removeBookmark,
                 onAddHighlight = viewModel::addHighlight,
@@ -570,9 +732,9 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
                 onSearchInBook = viewModel::searchInBook,
                 onClearSearch = viewModel::clearInBookSearch,
                 onUpdateSettings = viewModel::updateSettings,
-                onStartTtsAtParagraph = { bId, l, cIdx, pIdx ->
+                onStartTtsAtParagraph = { bId, l, cIdx, pIdx, sIdx ->
                   ensureNotificationPermissionIfNeeded()
-                  viewModel.ttsManager.startReadingFromParagraph(bId, l, cIdx, pIdx)
+                  viewModel.ttsManager.startReadingFromParagraph(bId, l, cIdx, pIdx, sIdx)
                 },
                 onToggleTtsPlayPause = { viewModel.ttsManager.togglePlayPause() },
                 onTtsPrev = { viewModel.ttsManager.previousParagraph() },
@@ -651,7 +813,7 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
           }
         }
 
-        // Keep Floating TTS player accessible if background audio is running outside ReaderScreen
+        // Floating TTS player accessible if background audio is running outside ReaderScreen
         if (!currentRoute.startsWith("reader")) {
           FloatingTtsPlayer(
             state = ttsState,
@@ -680,32 +842,32 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
           Column(modifier = Modifier.padding(20.dp)) {
             Text(
               text = strings.appTitle,
-              fontFamily = PlayfairDisplayFamily,
+              fontFamily = BodoniModaFamily,
               style = MaterialTheme.typography.headlineSmall,
             )
             Text(
-              text = strings.offlineBadge,
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.secondary,
+              text = strings.editorialSubtitle,
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
           }
           HorizontalDivider()
           Spacer(modifier = Modifier.height(8.dp))
-          topDestinations.forEach { dest ->
+          allTopDestinations.forEach { dest ->
             NavigationDrawerItem(
               label = { Text(dest.label) },
               icon = { Icon(dest.icon, contentDescription = null) },
               selected = currentRoute == dest.route,
               onClick = {
                 scope.launch { drawerState.close() }
-                navigateTopLevel(dest.route)
+                navigateDestination(dest)
               },
               modifier = Modifier.padding(horizontal = 12.dp),
             )
           }
           NavigationDrawerItem(
             label = { Text(strings.navSettings) },
-            icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+            icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
             selected = currentRoute == Routes.SETTINGS,
             onClick = {
               scope.launch { drawerState.close() }
@@ -721,7 +883,6 @@ fun BookWiseAppShell(viewModel: BookWiseViewModel) {
     scaffoldContent()
   }
 
-  // Multi-book migration dialog (BookWise JSON/TrebEdit imports)
   pendingMigration?.let { migration ->
     var resolution by remember { mutableStateOf(DuplicateResolution.KEEP_BOTH) }
     AlertDialog(

@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,18 +47,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.tts.TtsPlaybackState
+import com.example.ui.theme.DarkSurface
+import com.example.ui.theme.LiterataFamily
+import com.example.ui.theme.ManropeFamily
+import com.example.ui.theme.PureWhite
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * Compact, movable floating offline TTS player.
- * Remains completely hidden during normal reading; appears only when TTS starts.
+ * Compact, draggable floating offline TTS player.
+ * Remains completely hidden until TTS playback begins.
  */
 @Composable
 fun FloatingTtsPlayer(
@@ -71,10 +79,13 @@ fun FloatingTtsPlayer(
   onOpenSystemVoiceSetup: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  val isLightTheme = MaterialTheme.colorScheme.background.luminance() > 0.5f
+  val barSurfaceColor = if (isLightTheme) PureWhite else DarkSurface
+
   AnimatedVisibility(
     visible = state.isPlayerVisible,
-    enter = fadeIn() + scaleIn(initialScale = 0.92f),
-    exit = fadeOut() + scaleOut(targetScale = 0.92f),
+    enter = fadeIn() + scaleIn(initialScale = 0.94f),
+    exit = fadeOut() + scaleOut(targetScale = 0.94f),
     modifier = modifier,
   ) {
     var offsetX by remember { mutableFloatStateOf(0f) }
@@ -95,13 +106,14 @@ fun FloatingTtsPlayer(
       if (state.isMinimized) {
         Surface(
           shape = RoundedCornerShape(50),
-          tonalElevation = 6.dp,
-          shadowElevation = 10.dp,
-          color = MaterialTheme.colorScheme.surfaceContainerHigh,
+          tonalElevation = 2.dp,
+          shadowElevation = 8.dp,
+          color = barSurfaceColor,
+          border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant),
         ) {
           Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
           ) {
             Icon(
               imageVector = Icons.Filled.GraphicEq,
@@ -134,13 +146,14 @@ fun FloatingTtsPlayer(
         }
       } else {
         Surface(
-          shape = RoundedCornerShape(20.dp),
-          tonalElevation = 8.dp,
-          shadowElevation = 12.dp,
-          color = MaterialTheme.colorScheme.surfaceContainerHigh,
-          modifier = Modifier.widthIn(min = 280.dp, max = 380.dp),
+          shape = RoundedCornerShape(16.dp),
+          tonalElevation = 2.dp,
+          shadowElevation = 10.dp,
+          color = barSurfaceColor,
+          border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant),
+          modifier = Modifier.widthIn(min = 280.dp, max = 384.dp),
         ) {
-          Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+          Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(
               modifier = Modifier.fillMaxWidth(),
               verticalAlignment = Alignment.CenterVertically,
@@ -149,19 +162,24 @@ fun FloatingTtsPlayer(
               Column(modifier = Modifier.weight(1f)) {
                 Text(
                   text = state.chapterTitle.ifBlank { state.bookTitle },
-                  style = MaterialTheme.typography.titleSmall,
+                  fontFamily = LiterataFamily,
+                  fontSize = 15.sp,
+                  fontWeight = FontWeight.Medium,
+                  color = MaterialTheme.colorScheme.onBackground,
                   maxLines = 1,
                   overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                   text =
-                    "Paragraph ${state.paragraphIndex + 1} of ${state.totalParagraphs.coerceAtLeast(1)} • ${state.languageCode.uppercase()}",
-                  style = MaterialTheme.typography.bodySmall,
+                    "Para ${state.paragraphIndex + 1}/${state.totalParagraphs.coerceAtLeast(1)} · Sent ${state.sentenceIndex + 1} · ${state.languageCode.uppercase()}",
+                  fontFamily = ManropeFamily,
+                  fontSize = 11.sp,
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
               }
               Row {
-                IconButton(onClick = onToggleMinimize, modifier = Modifier.size(40.dp)) {
+                IconButton(onClick = onToggleMinimize, modifier = Modifier.size(42.dp)) {
                   Icon(
                     imageVector = Icons.Filled.ExpandMore,
                     contentDescription = "Minimize player",
@@ -169,7 +187,7 @@ fun FloatingTtsPlayer(
                 }
                 IconButton(
                   onClick = onStop,
-                  modifier = Modifier.size(40.dp).testTag("tts_stop_button"),
+                  modifier = Modifier.size(42.dp).testTag("tts_stop_button"),
                 ) {
                   Icon(
                     imageVector = Icons.Filled.Stop,
@@ -198,17 +216,19 @@ fun FloatingTtsPlayer(
               )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             val fraction =
               if (state.totalParagraphs > 0) {
                 (state.paragraphIndex + 1).toFloat() / state.totalParagraphs.toFloat()
               } else 0f
             LinearProgressIndicator(
               progress = { fraction.coerceIn(0f, 1f) },
-              modifier = Modifier.fillMaxWidth().height(3.dp),
+              color = MaterialTheme.colorScheme.secondary,
+              trackColor = MaterialTheme.colorScheme.outlineVariant,
+              modifier = Modifier.fillMaxWidth().height(2.dp),
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Row(
               modifier = Modifier.fillMaxWidth(),
               verticalAlignment = Alignment.CenterVertically,
@@ -217,15 +237,17 @@ fun FloatingTtsPlayer(
               Surface(
                 onClick = onCycleSpeed,
                 shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.secondaryContainer,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier.height(36.dp),
               ) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp)) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 14.dp)) {
                   Text(
-                    text = "${String.format("%.1f", state.speechRate)}x",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    text = "${String.format(Locale.US, "%.2f", state.speechRate).trimEnd('0').trimEnd('.')}x",
+                    fontFamily = ManropeFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onBackground,
                   )
                 }
               }

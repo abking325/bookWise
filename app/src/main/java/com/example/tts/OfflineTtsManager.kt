@@ -14,8 +14,10 @@ import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
 import androidx.core.content.ContextCompat
 import com.example.data.storage.BookStorageRepository
+import com.example.model.AudioProgress
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -44,12 +46,22 @@ data class TtsPlaybackState(
   val chapterIndex: Int = 0,
   val chapterTitle: String = "",
   val paragraphIndex: Int = 0,
+  val sentenceIndex: Int = 0,
+  val activeCharStart: Int = -1,
+  val activeCharEnd: Int = -1,
   val totalParagraphs: Int = 0,
   val totalChapters: Int = 0,
   val speechRate: Float = 1.0f,
   val pitch: Float = 1.0f,
   val statusMessage: String? = null,
   val unavailableNotice: String? = null,
+)
+
+data class SentenceSpan(
+  val index: Int,
+  val text: String,
+  val startChar: Int,
+  val endChar: Int,
 )
 
 class OfflineTtsManager(
@@ -66,8 +78,12 @@ class OfflineTtsManager(
 
   private var tts: TextToSpeech? = null
   private var activeParagraphs: List<String> = emptyList()
-  private var currentUtteranceToken: String = ""
-  private var isStopRequested = false
+  private var activeChapterId: String = ""
+  private val playbackGeneration = AtomicLong(0L)
+  @Volatile private var currentFinalUtteranceId: String = ""
+  @Volatile private var currentGenPrefix: String = ""
+  private var chunkOffsets = mutableMapOf<String, Int>()
+  @Volatile private var isStopRequested = false
 
   private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
   private var focusRequest: AudioFocusRequest? = null
@@ -86,11 +102,8 @@ class OfflineTtsManager(
     AudioManager.OnAudioFocusChangeListener { change ->
       when (change) {
         AudioManager.AUDIOFOCUS_LOSS,
-        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-          if (_state.value.isPlaying) pause()
-        }
+        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
         AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-          // Pause cleanly for clarity while ducking is requested
           if (_state.value.isPlaying) pause()
         }
       }
@@ -121,20 +134,59 @@ class OfflineTtsManager(
       }
   }
 
+  private fun isTokenActive(utteranceId: String?): Boolean {
+    if (utteranceId.isNullOrEmpty() || isStopRequested) return false
+    val prefix = currentGenPrefix
+    return prefix.isNotEmpty() && utteranceId.startsWith(prefix)
+  }
+
   private fun setupListener() {
     tts?.setOnUtteranceProgressListener(
       object : UtteranceProgressListener() {
-        override fun onStart(utteranceId: String?) {}
+        override fun onStart(utteranceId: String?) {
+          if (!isTokenActive(utteranceId)) return
+          val baseOffset = chunkOffsets[utteranceId] ?: 0
+          scope.launch {
+            if (!isTokenActive(utteranceId)) return@launch
+            persistAudioCheckpoint(baseOffset)
+          }
+        }
+
+        override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
+          if (!isTokenActive(utteranceId)) return
+          val baseOffset = chunkOffsets[utteranceId] ?: 0
+          val absStart = baseOffset + start
+          val absEnd = baseOffset + end
+          scope.launch {
+            if (!isTokenActive(utteranceId)) return@launch
+            val paraText = activeParagraphs.getOrNull(_state.value.paragraphIndex).orEmpty()
+            val spans = splitParagraphIntoSentenceSpans(paraText)
+            val sentenceIdx =
+              spans.firstOrNull { absStart in it.startChar..it.endChar }?.index
+                ?: _state.value.sentenceIndex
+            _state.value =
+              _state.value.copy(
+                sentenceIndex = sentenceIdx,
+                activeCharStart = absStart,
+                activeCharEnd = absEnd,
+              )
+          }
+        }
 
         override fun onDone(utteranceId: String?) {
-          if (utteranceId != currentUtteranceToken || isStopRequested) return
-          scope.launch { advanceAfterParagraphDone() }
+          if (utteranceId != currentFinalUtteranceId || isStopRequested) return
+          val capturedGen = playbackGeneration.get()
+          scope.launch {
+            if (playbackGeneration.get() != capturedGen || isStopRequested) return@launch
+            advanceAfterParagraphDone()
+          }
         }
 
         @Deprecated("Deprecated in Java")
         override fun onError(utteranceId: String?) {
-          if (utteranceId != currentUtteranceToken || isStopRequested) return
+          if (!isTokenActive(utteranceId)) return
           scope.launch {
+            if (!isTokenActive(utteranceId)) return@launch
             _state.value =
               _state.value.copy(
                 isPlaying = false,
@@ -146,8 +198,9 @@ class OfflineTtsManager(
         }
 
         override fun onError(utteranceId: String?, errorCode: Int) {
-          if (utteranceId != currentUtteranceToken || isStopRequested) return
+          if (!isTokenActive(utteranceId)) return
           scope.launch {
+            if (!isTokenActive(utteranceId)) return@launch
             _state.value =
               _state.value.copy(
                 isPlaying = false,
@@ -203,14 +256,26 @@ class OfflineTtsManager(
     languageCode: String,
     chapterIndex: Int,
     paragraphIndex: Int,
+    startSentenceIndex: Int = 0,
   ) {
     ensureInitialized()
+    val gen = playbackGeneration.incrementAndGet()
+    // Immediately cancel any previous speech before async load finishes
+    isStopRequested = true
+    currentFinalUtteranceId = ""
+    currentGenPrefix = ""
+    tts?.stop()
+
     scope.launch {
+      if (playbackGeneration.get() != gen) return@launch
       val book = repository.books.value.firstOrNull { it.id == bookId } ?: return@launch
       val edition = book.edition(languageCode) ?: return@launch
       val content =
         repository.loadChapterContent(bookId, edition.languageCode, chapterIndex) ?: return@launch
+      if (playbackGeneration.get() != gen) return@launch
+
       activeParagraphs = content.paragraphs
+      activeChapterId = content.meta.id
       val safePara = paragraphIndex.coerceIn(0, (activeParagraphs.size - 1).coerceAtLeast(0))
       val settings = repository.settings.value
 
@@ -224,6 +289,9 @@ class OfflineTtsManager(
           chapterIndex = chapterIndex,
           chapterTitle = content.meta.title,
           paragraphIndex = safePara,
+          sentenceIndex = startSentenceIndex.coerceAtLeast(0),
+          activeCharStart = -1,
+          activeCharEnd = -1,
           totalParagraphs = activeParagraphs.size,
           totalChapters = edition.chapters.size,
           speechRate = settings.ttsSpeechRate,
@@ -231,11 +299,11 @@ class OfflineTtsManager(
           statusMessage = null,
           unavailableNotice = null,
         )
-      speakCurrentParagraph()
+      speakCurrentParagraph(startSentenceIndex)
     }
   }
 
-  private fun speakCurrentParagraph() {
+  private fun speakCurrentParagraph(startSentenceIndex: Int = 0) {
     val engine = tts
     if (engine == null || !_state.value.isEngineReady) {
       ensureInitialized()
@@ -279,52 +347,99 @@ class OfflineTtsManager(
     engine.setSpeechRate(st.speechRate)
     engine.setPitch(st.pitch)
 
-    val text = activeParagraphs[st.paragraphIndex].trim()
-    if (text.isEmpty()) {
+    val fullText = activeParagraphs[st.paragraphIndex].trim()
+    if (fullText.isEmpty()) {
       scope.launch { advanceAfterParagraphDone() }
       return
     }
 
+    val sentenceSpans = splitParagraphIntoSentenceSpans(fullText)
+    val startSpan = sentenceSpans.getOrNull(startSentenceIndex) ?: sentenceSpans.firstOrNull()
+    val startChar = startSpan?.startChar ?: 0
+    val textToSpeak = fullText.substring(startChar).trim()
+    if (textToSpeak.isEmpty()) {
+      scope.launch { advanceAfterParagraphDone() }
+      return
+    }
+
+    val gen = playbackGeneration.incrementAndGet()
+    val prefix = "bw_${gen}_${UUID.randomUUID().toString().take(8)}"
+    currentGenPrefix = prefix
     isStopRequested = false
-    val token = UUID.randomUUID().toString()
-    currentUtteranceToken = token
+    chunkOffsets.clear()
+
+    val chunks = splitLongParagraphForTtsWithOffsets(textToSpeak, startChar)
+    val finalId = "${prefix}_part_${chunks.lastIndex}"
+    currentFinalUtteranceId = finalId
 
     _state.value =
       st.copy(
         isPlaying = true,
         isPaused = false,
+        sentenceIndex = startSpan?.index ?: 0,
+        activeCharStart = startChar,
+        activeCharEnd = startSpan?.endChar ?: -1,
         unavailableNotice = voiceResult.message,
         statusMessage = null,
       )
 
+    persistAudioCheckpoint(startChar)
+
     val params = Bundle()
-    val chunks = splitLongParagraphForTts(text)
-    chunks.forEachIndexed { index, chunk ->
-      val chunkId = if (index == chunks.lastIndex) token else "${token}_part_$index"
+    chunks.forEachIndexed { index, (chunkText, offset) ->
+      val chunkId = "${prefix}_part_$index"
+      chunkOffsets[chunkId] = offset
       val mode = if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-      engine.speak(chunk, mode, params, chunkId)
+      engine.speak(chunkText, mode, params, chunkId)
     }
 
     startOrUpdateService()
   }
 
-  private fun splitLongParagraphForTts(text: String): List<String> {
+  private fun persistAudioCheckpoint(charOffset: Int) {
+    val st = _state.value
+    if (st.bookId.isBlank()) return
+    scope.launch {
+      repository.updateAudioProgress(
+        bookId = st.bookId,
+        languageCode = st.languageCode,
+        audioProgress =
+          AudioProgress(
+            chapterIndex = st.chapterIndex,
+            chapterId = activeChapterId,
+            paragraphIndex = st.paragraphIndex,
+            sentenceIndex = st.sentenceIndex,
+            charOffset = charOffset,
+            lastUpdatedAt = System.currentTimeMillis(),
+          ),
+      )
+    }
+  }
+
+  private fun splitLongParagraphForTtsWithOffsets(
+    text: String,
+    baseOffset: Int,
+  ): List<Pair<String, Int>> {
     val maxLen = TextToSpeech.getMaxSpeechInputLength().coerceAtLeast(3000)
-    if (text.length <= maxLen) return listOf(text)
-    val result = mutableListOf<String>()
+    if (text.length <= maxLen) return listOf(text to baseOffset)
+    val result = mutableListOf<Pair<String, Int>>()
     var start = 0
     while (start < text.length) {
       val end = (start + maxLen).coerceAtMost(text.length)
       val splitAt =
         if (end < text.length) {
           text.lastIndexOf('.', end).takeIf { it > start }
+            ?: text.lastIndexOf('።', end).takeIf { it > start }
             ?: text.lastIndexOf(' ', end).takeIf { it > start }
             ?: end
         } else end
-      result.add(text.substring(start, splitAt).trim())
+      val piece = text.substring(start, splitAt).trim()
+      if (piece.isNotEmpty()) {
+        result.add(piece to (baseOffset + start))
+      }
       start = splitAt
     }
-    return result.filter { it.isNotEmpty() }
+    return result.ifEmpty { listOf(text to baseOffset) }
   }
 
   private data class VoiceCheckResult(val available: Boolean, val message: String? = null)
@@ -335,7 +450,6 @@ class OfflineTtsManager(
     val offline = allVoices.filter { !it.isNetworkConnectionRequired }
     val targetPrefix = languageCode.lowercase().take(2)
 
-    // 1. Exact user-selected offline voice matching language
     val selectedVoice =
       offline.firstOrNull {
         it.name == preferredName && it.locale.language.lowercase().startsWith(targetPrefix)
@@ -345,20 +459,17 @@ class OfflineTtsManager(
       return VoiceCheckResult(true)
     }
 
-    // 2. Any installed offline voice for target language
     val langOfflineVoice = offline.firstOrNull { it.locale.language.lowercase().startsWith(targetPrefix) }
     if (langOfflineVoice != null) {
       engine.voice = langOfflineVoice
       return VoiceCheckResult(true)
     }
 
-    // 3. Fallback check via setLanguage + offline availability check
     val locale =
       if (targetPrefix == "am") Locale.Builder().setLanguage("am").setRegion("ET").build()
       else Locale.US
     val langSupport = engine.isLanguageAvailable(locale)
     if (langSupport >= TextToSpeech.LANG_AVAILABLE) {
-      // Double check the resulting active voice is not network-required
       val activeVoice = runCatching { engine.voice }.getOrNull()
       if (activeVoice != null && activeVoice.isNetworkConnectionRequired) {
         return VoiceCheckResult(
@@ -370,7 +481,6 @@ class OfflineTtsManager(
       return VoiceCheckResult(true)
     }
 
-    // 4. Graceful error notice for missing Amharic or English offline voice
     val notice =
       if (targetPrefix == "am") {
         "No offline Amharic (አማርኛ) voice is installed on this device. Install an offline Amharic TTS voice pack in Android Settings -> Text-to-Speech, or switch to the English edition."
@@ -385,34 +495,44 @@ class OfflineTtsManager(
     if (!st.isPlaying) return
     val nextPara = st.paragraphIndex + 1
     if (nextPara < activeParagraphs.size) {
-      _state.value = st.copy(paragraphIndex = nextPara)
-      speakCurrentParagraph()
-    } else {
+      _state.value =
+        st.copy(
+          paragraphIndex = nextPara,
+          sentenceIndex = 0,
+          activeCharStart = -1,
+          activeCharEnd = -1,
+        )
+      speakCurrentParagraph(0)
+    } else if (repository.settings.value.ttsAutoAdvanceChapter && st.chapterIndex + 1 < st.totalChapters) {
       val nextChapter = st.chapterIndex + 1
-      if (nextChapter < st.totalChapters) {
-        val content =
-          repository.loadChapterContent(st.bookId, st.languageCode, nextChapter) ?: run {
-            stop()
-            return
-          }
-        activeParagraphs = content.paragraphs
-        _state.value =
-          st.copy(
-            chapterIndex = nextChapter,
-            chapterTitle = content.meta.title,
-            paragraphIndex = 0,
-            totalParagraphs = activeParagraphs.size,
-          )
-        speakCurrentParagraph()
-      } else {
-        stop()
-      }
+      val content =
+        repository.loadChapterContent(st.bookId, st.languageCode, nextChapter) ?: run {
+          stop()
+          return
+        }
+      activeParagraphs = content.paragraphs
+      activeChapterId = content.meta.id
+      _state.value =
+        st.copy(
+          chapterIndex = nextChapter,
+          chapterTitle = content.meta.title,
+          paragraphIndex = 0,
+          sentenceIndex = 0,
+          activeCharStart = -1,
+          activeCharEnd = -1,
+          totalParagraphs = activeParagraphs.size,
+        )
+      speakCurrentParagraph(0)
+    } else {
+      pause()
     }
   }
 
   fun pause() {
+    playbackGeneration.incrementAndGet()
     isStopRequested = true
-    currentUtteranceToken = ""
+    currentFinalUtteranceId = ""
+    currentGenPrefix = ""
     tts?.stop()
     _state.value = _state.value.copy(isPlaying = false, isPaused = true)
     notifyServiceStateChanged()
@@ -422,10 +542,10 @@ class OfflineTtsManager(
     if (!_state.value.isPlayerVisible) return
     if (activeParagraphs.isEmpty()) {
       val st = _state.value
-      startReadingFromParagraph(st.bookId, st.languageCode, st.chapterIndex, st.paragraphIndex)
+      startReadingFromParagraph(st.bookId, st.languageCode, st.chapterIndex, st.paragraphIndex, st.sentenceIndex)
       return
     }
-    speakCurrentParagraph()
+    speakCurrentParagraph(_state.value.sentenceIndex)
   }
 
   fun togglePlayPause() {
@@ -436,23 +556,38 @@ class OfflineTtsManager(
     val st = _state.value
     if (!st.isPlayerVisible) return
     if (st.paragraphIndex > 0) {
-      _state.value = st.copy(paragraphIndex = st.paragraphIndex - 1)
-      speakCurrentParagraph()
+      _state.value =
+        st.copy(
+          paragraphIndex = st.paragraphIndex - 1,
+          sentenceIndex = 0,
+          activeCharStart = -1,
+          activeCharEnd = -1,
+        )
+      speakCurrentParagraph(0)
     } else if (st.chapterIndex > 0) {
+      val gen = playbackGeneration.incrementAndGet()
+      isStopRequested = true
+      tts?.stop()
       scope.launch {
+        if (playbackGeneration.get() != gen) return@launch
         val prevContent =
           repository.loadChapterContent(st.bookId, st.languageCode, st.chapterIndex - 1)
             ?: return@launch
+        if (playbackGeneration.get() != gen) return@launch
         activeParagraphs = prevContent.paragraphs
+        activeChapterId = prevContent.meta.id
         val lastPara = (activeParagraphs.size - 1).coerceAtLeast(0)
         _state.value =
           st.copy(
             chapterIndex = st.chapterIndex - 1,
             chapterTitle = prevContent.meta.title,
             paragraphIndex = lastPara,
+            sentenceIndex = 0,
+            activeCharStart = -1,
+            activeCharEnd = -1,
             totalParagraphs = activeParagraphs.size,
           )
-        speakCurrentParagraph()
+        speakCurrentParagraph(0)
       }
     }
   }
@@ -461,22 +596,37 @@ class OfflineTtsManager(
     val st = _state.value
     if (!st.isPlayerVisible) return
     if (st.paragraphIndex + 1 < activeParagraphs.size) {
-      _state.value = st.copy(paragraphIndex = st.paragraphIndex + 1)
-      speakCurrentParagraph()
+      _state.value =
+        st.copy(
+          paragraphIndex = st.paragraphIndex + 1,
+          sentenceIndex = 0,
+          activeCharStart = -1,
+          activeCharEnd = -1,
+        )
+      speakCurrentParagraph(0)
     } else if (st.chapterIndex + 1 < st.totalChapters) {
+      val gen = playbackGeneration.incrementAndGet()
+      isStopRequested = true
+      tts?.stop()
       scope.launch {
+        if (playbackGeneration.get() != gen) return@launch
         val nextContent =
           repository.loadChapterContent(st.bookId, st.languageCode, st.chapterIndex + 1)
             ?: return@launch
+        if (playbackGeneration.get() != gen) return@launch
         activeParagraphs = nextContent.paragraphs
+        activeChapterId = nextContent.meta.id
         _state.value =
           st.copy(
             chapterIndex = st.chapterIndex + 1,
             chapterTitle = nextContent.meta.title,
             paragraphIndex = 0,
+            sentenceIndex = 0,
+            activeCharStart = -1,
+            activeCharEnd = -1,
             totalParagraphs = activeParagraphs.size,
           )
-        speakCurrentParagraph()
+        speakCurrentParagraph(0)
       }
     }
   }
@@ -486,7 +636,7 @@ class OfflineTtsManager(
     scope.launch { repository.updateSettings { it.copy(ttsSpeechRate = clamped) } }
     val wasPlaying = _state.value.isPlaying
     _state.value = _state.value.copy(speechRate = clamped)
-    if (wasPlaying) speakCurrentParagraph()
+    if (wasPlaying) speakCurrentParagraph(_state.value.sentenceIndex)
   }
 
   fun updatePitch(pitch: Float) {
@@ -494,7 +644,7 @@ class OfflineTtsManager(
     scope.launch { repository.updateSettings { it.copy(ttsPitch = clamped) } }
     val wasPlaying = _state.value.isPlaying
     _state.value = _state.value.copy(pitch = clamped)
-    if (wasPlaying) speakCurrentParagraph()
+    if (wasPlaying) speakCurrentParagraph(_state.value.sentenceIndex)
   }
 
   fun setMinimized(minimized: Boolean) {
@@ -502,8 +652,11 @@ class OfflineTtsManager(
   }
 
   fun stop() {
+    playbackGeneration.incrementAndGet()
     isStopRequested = true
-    currentUtteranceToken = ""
+    currentFinalUtteranceId = ""
+    currentGenPrefix = ""
+    chunkOffsets.clear()
     tts?.stop()
     abandonAudioFocus()
     unregisterNoisyReceiver()
@@ -513,6 +666,8 @@ class OfflineTtsManager(
         isPlaying = false,
         isPaused = false,
         isMinimized = false,
+        activeCharStart = -1,
+        activeCharEnd = -1,
         statusMessage = null,
         unavailableNotice = null,
       )
@@ -627,5 +782,28 @@ class OfflineTtsManager(
     if (!noisyReceiverRegistered) return
     runCatching { context.unregisterReceiver(noisyReceiver) }
     noisyReceiverRegistered = false
+  }
+
+  companion object {
+    fun splitParagraphIntoSentenceSpans(paragraph: String): List<SentenceSpan> {
+      if (paragraph.isBlank()) return emptyList()
+      val spans = mutableListOf<SentenceSpan>()
+      val boundaryRegex = Regex("""(?<=[.!?።][\"”’\)\]]?)\s+""")
+      var cursor = 0
+      val parts = paragraph.split(boundaryRegex)
+      parts.forEachIndexed { idx, part ->
+        val trimmed = part.trim()
+        if (trimmed.isNotEmpty()) {
+          val foundAt = paragraph.indexOf(trimmed, cursor).coerceAtLeast(cursor)
+          val endAt = (foundAt + trimmed.length).coerceAtMost(paragraph.length)
+          spans.add(SentenceSpan(idx, trimmed, foundAt, endAt))
+          cursor = endAt
+        }
+      }
+      if (spans.isEmpty()) {
+        spans.add(SentenceSpan(0, paragraph.trim(), 0, paragraph.length))
+      }
+      return spans
+    }
   }
 }

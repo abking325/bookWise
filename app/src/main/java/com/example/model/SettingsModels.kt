@@ -1,12 +1,12 @@
 package com.example.model
 
 enum class AppThemeMode(val id: String, val labelEn: String, val labelAm: String) {
-  SYSTEM("system", "System Default", "የስርዓት ነባሪ"),
+  SYSTEM("system", "System", "የስርዓት ነባሪ"),
   LIGHT("light", "Pure Light", "ብሩህ (ነጭ)"),
-  DARK("dark", "Archival Dark", "ጨለማ");
+  DARK("dark", "Charcoal Dark", "ጨለማ");
 
   companion object {
-    fun fromId(id: String?): AppThemeMode = entries.firstOrNull { it.id == id } ?: SYSTEM
+    fun fromId(id: String?): AppThemeMode = entries.firstOrNull { it.id == id } ?: LIGHT
   }
 }
 
@@ -22,26 +22,38 @@ enum class NavigationStyle(val id: String, val labelEn: String, val labelAm: Str
 }
 
 enum class ReaderTheme(val id: String, val labelEn: String, val labelAm: String) {
+  SOFT_PAPER("soft_paper", "Paper", "ወረቀት"),
   PURE_WHITE("pure_white", "Pure White", "ንጹህ ነጭ"),
-  SOFT_PAPER("soft_paper", "Soft Paper", "ለስላሳ ወረቀት"),
   SEPIA("sepia", "Sepia", "ሴፒያ"),
-  DARK_CHARCOAL("dark_charcoal", "Dark Charcoal", "ጥቁር ከሰል"),
+  MINT("mint", "Mint", "አረንጓዴ"),
+  DARK_CHARCOAL("dark_charcoal", "Night", "ጥቁር ከሰል"),
   PURE_BLACK("pure_black", "Pure Black", "ንጹህ ጥቁር");
 
   companion object {
-    fun fromId(id: String?): ReaderTheme = entries.firstOrNull { it.id == id } ?: SOFT_PAPER
+    fun fromId(id: String?): ReaderTheme =
+      when (id) {
+        "paper" -> SOFT_PAPER
+        "night" -> DARK_CHARCOAL
+        else -> entries.firstOrNull { it.id == id } ?: SOFT_PAPER
+      }
   }
 }
 
 enum class ReaderFont(val id: String, val labelEn: String, val labelAm: String) {
-  LORA_SERIF("lora", "Lora Editorial", "ሎራ (Serif)"),
-  PLAYFAIR_CLASSIC("playfair", "Playfair Classic", "ፕሌይፌር (Classic)"),
-  INTER_SANS("inter", "Inter Clean", "ኢንተር (Sans)"),
+  LITERATA_SERIF("literata", "Literata Editorial", "ሊተራታ (Serif)"),
+  BODONI_MODA("bodoni_moda", "Bodoni Classic", "ቦዶኒ (Classic)"),
+  MANROPE_SANS("manrope", "Manrope Clean", "ማንሮፕ (Sans)"),
+  LORA_SERIF("lora", "Lora Book", "ሎራ (Book)"),
   ETHIOPIC_SERIF("ethiopic_serif", "Ethiopic Serif", "ግዕዝ ሴሪፍ"),
   ETHIOPIC_SANS("ethiopic_sans", "Ethiopic Sans", "ግዕዝ ሳንስ");
 
   companion object {
-    fun fromId(id: String?): ReaderFont = entries.firstOrNull { it.id == id } ?: LORA_SERIF
+    fun fromId(id: String?): ReaderFont =
+      when (id) {
+        "playfair" -> BODONI_MODA
+        "inter" -> MANROPE_SANS
+        else -> entries.firstOrNull { it.id == id } ?: LITERATA_SERIF
+      }
   }
 }
 
@@ -69,12 +81,12 @@ data class AppSettings(
   val navigationStyle: NavigationStyle = NavigationStyle.TOP_BAR,
   val carouselDepthEnabled: Boolean = true,
   val carouselShowSpineThickness: Boolean = true,
-  val readerFont: ReaderFont = ReaderFont.LORA_SERIF,
+  val readerFont: ReaderFont = ReaderFont.LITERATA_SERIF,
   val readerFontSizeSp: Float = 18f,
   val readerLineHeightMultiplier: Float = 1.65f,
   val readerParagraphSpacingDp: Float = 14f,
   val readerMarginDp: Float = 22f,
-  val readerTheme: ReaderTheme = ReaderTheme.PURE_WHITE,
+  val readerTheme: ReaderTheme = ReaderTheme.SOFT_PAPER,
   val readerTextAlignment: TextAlignmentMode = TextAlignmentMode.LEFT,
   val autoSaveReadingPosition: Boolean = true,
   val ttsVoiceName: String = "",
@@ -82,5 +94,7 @@ data class AppSettings(
   val ttsPitch: Float = 1.0f,
   val ttsDoubleTapEnabled: Boolean = true,
   val ttsBackgroundPlaybackEnabled: Boolean = true,
+  val ttsAutoAdvanceChapter: Boolean = true,
+  val ttsHighlightSentence: Boolean = true,
   val appLanguage: AppLanguage = AppLanguage.ENGLISH,
 )

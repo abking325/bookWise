@@ -17,17 +17,16 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoStories
-import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -36,6 +35,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.localization.UiStrings
 import com.example.model.AppSettings
 import com.example.model.Book
@@ -43,8 +43,9 @@ import com.example.model.CategoryItem
 import com.example.model.ReadingStatus
 import com.example.ui.components.BookCover3DCarousel
 import com.example.ui.components.BookCoverView
-import com.example.ui.theme.LoraFamily
-import com.example.ui.theme.PlayfairDisplayFamily
+import com.example.ui.theme.BodoniModaFamily
+import com.example.ui.theme.LiterataFamily
+import com.example.ui.theme.ManropeFamily
 
 @Composable
 fun HomeScreen(
@@ -56,6 +57,8 @@ fun HomeScreen(
   onReadBook: (Book) -> Unit,
   onOpenAddBook: () -> Unit,
   onOpenCategory: (String) -> Unit,
+  onViewAllBooks: () -> Unit,
+  onViewAllCategories: () -> Unit,
   onImportBackup: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
@@ -69,63 +72,25 @@ fun HomeScreen(
 
   LazyColumn(
     modifier = modifier.fillMaxSize().testTag("home_screen"),
-    contentPadding = PaddingValues(bottom = 96.dp),
+    contentPadding = PaddingValues(top = 12.dp, bottom = 96.dp),
   ) {
-    item {
-      Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
-      ) {
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          Column {
-            Text(
-              text = strings.appTitle,
-              fontFamily = PlayfairDisplayFamily,
-              style = MaterialTheme.typography.displaySmall,
-              color = MaterialTheme.colorScheme.onBackground,
-            )
-            Text(
-              text = strings.offlineBadge,
-              style = MaterialTheme.typography.labelMedium,
-              color = MaterialTheme.colorScheme.secondary,
-            )
-          }
-          OutlinedButton(
-            onClick = onOpenAddBook,
-            shape = RoundedCornerShape(50),
-            modifier = Modifier.height(48.dp).testTag("home_add_book_button"),
-          ) {
-            Icon(
-              imageVector = Icons.Filled.Add,
-              contentDescription = strings.addBook,
-              modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(strings.addBook)
-          }
-        }
-      }
-    }
-
     if (books.isEmpty()) {
       item {
         Column(
-          modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 48.dp),
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 56.dp),
           horizontalAlignment = Alignment.CenterHorizontally,
         ) {
           Icon(
             imageVector = Icons.Filled.AutoStories,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.secondary,
-            modifier = Modifier.size(48.dp),
+            modifier = Modifier.size(44.dp),
           )
           Spacer(modifier = Modifier.height(16.dp))
           Text(
             text = strings.noBooksTitle,
-            style = MaterialTheme.typography.headlineSmall,
+            fontFamily = BodoniModaFamily,
+            style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onBackground,
           )
           Spacer(modifier = Modifier.height(8.dp))
@@ -134,114 +99,134 @@ fun HomeScreen(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
-          Spacer(modifier = Modifier.height(20.dp))
+          Spacer(modifier = Modifier.height(22.dp))
           Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = onOpenAddBook, modifier = Modifier.height(48.dp)) {
+            Button(
+              onClick = onOpenAddBook,
+              shape = RoundedCornerShape(50),
+              modifier = Modifier.height(48.dp),
+            ) {
               Text(strings.addBook)
             }
-            OutlinedButton(onClick = onImportBackup, modifier = Modifier.height(48.dp)) {
+            OutlinedButton(
+              onClick = onImportBackup,
+              shape = RoundedCornerShape(50),
+              modifier = Modifier.height(48.dp),
+            ) {
               Text("Import BookWise")
             }
           }
         }
       }
     } else {
-      item {
+      // Section C & D: Hero 3D Turntable Carousel + Featured Book Info
+      item(key = "hero_carousel") {
         BookCover3DCarousel(
           books = books.take(12),
           showSpineThickness = settings.carouselShowSpineThickness,
           depthEnabled = settings.carouselDepthEnabled,
           readButtonLabel = strings.readNow,
           continueButtonLabel = strings.continueReading,
+          detailsButtonLabel = strings.discoverDetails,
           onOpenBookDetails = onOpenBookDetails,
           onReadBook = onReadBook,
-          modifier = Modifier.padding(top = 4.dp, bottom = 18.dp),
+          modifier = Modifier.padding(top = 4.dp, bottom = 28.dp),
         )
       }
     }
 
+    // Section E: Continue Reading — clean flat borderless editorial shelf
     if (continueReading.isNotEmpty()) {
-      item {
-        SectionDividerHeader(title = strings.continueReading)
+      item(key = "continue_reading_section") {
+        EditorialSectionHeader(
+          title = strings.continueReading,
+          actionLabel = strings.viewAll,
+          onActionClick = onViewAllBooks,
+        )
         LazyRow(
-          contentPadding = PaddingValues(horizontal = 24.dp),
-          horizontalArrangement = Arrangement.spacedBy(16.dp),
+          contentPadding = PaddingValues(horizontal = 20.dp),
+          horizontalArrangement = Arrangement.spacedBy(22.dp),
         ) {
           items(continueReading, key = { it.id }) { book ->
-            ContinueReadingCard(
+            EditorialContinueReadingItem(
               book = book,
-              onClick = { onReadBook(book) },
-              onLongInspect = { onOpenBookDetails(book) },
+              onReadClick = { onReadBook(book) },
+              onDetailsClick = { onOpenBookDetails(book) },
             )
           }
         }
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(32.dp))
       }
     }
 
+    // Section F: Recently Added — pure gallery cover row without boxed containers
     if (recentlyAdded.isNotEmpty()) {
-      item {
-        SectionDividerHeader(title = strings.recentlyAdded)
+      item(key = "recently_added_section") {
+        EditorialSectionHeader(
+          title = strings.recentlyAdded,
+          actionLabel = strings.viewAll,
+          onActionClick = onViewAllBooks,
+        )
         LazyRow(
-          contentPadding = PaddingValues(horizontal = 24.dp),
-          horizontalArrangement = Arrangement.spacedBy(16.dp),
+          contentPadding = PaddingValues(horizontal = 20.dp),
+          horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
           items(recentlyAdded, key = { it.id }) { book ->
-            ShelfBookItem(
+            EditorialGalleryBookItem(
               book = book,
               onClick = { onOpenBookDetails(book) },
             )
           }
         }
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(32.dp))
       }
     }
 
+    // Section G: Categories — clean luxury bookstore index rows with hairline dividers
     if (categories.isNotEmpty()) {
-      item {
-        SectionDividerHeader(title = strings.organizedCategories)
-        LazyRow(
-          contentPadding = PaddingValues(horizontal = 24.dp),
-          horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-          items(categories, key = { it.id }) { cat ->
-            val count = books.count { it.category.equals(cat.name, ignoreCase = true) }
-            Surface(
-              onClick = { onOpenCategory(cat.name) },
-              shape = RoundedCornerShape(12.dp),
-              color = MaterialTheme.colorScheme.surfaceContainerLow,
-              border =
-                androidx.compose.foundation.BorderStroke(
-                  1.dp,
-                  MaterialTheme.colorScheme.outlineVariant,
-                ),
-              modifier = Modifier.height(48.dp),
-            ) {
-              Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 16.dp),
-              ) {
-                Icon(
-                  imageVector = Icons.Outlined.BookmarkBorder,
-                  contentDescription = null,
-                  tint = MaterialTheme.colorScheme.secondary,
-                  modifier = Modifier.size(16.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                  text = cat.name,
-                  style = MaterialTheme.typography.labelLarge,
-                  color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                  text = "$count",
-                  style = MaterialTheme.typography.labelSmall,
-                  color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-              }
+      item(key = "categories_header") {
+        EditorialSectionHeader(
+          title = strings.organizedCategories,
+          actionLabel = strings.viewAll,
+          onActionClick = onViewAllCategories,
+        )
+      }
+      items(categories, key = { it.id }) { cat ->
+        val count = books.count { it.category.equals(cat.name, ignoreCase = true) }
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+          Row(
+            modifier =
+              Modifier.fillMaxWidth()
+                .clickable { onOpenCategory(cat.name) }
+                .padding(vertical = 15.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Text(
+              text = cat.name,
+              fontFamily = BodoniModaFamily,
+              fontSize = 18.sp,
+              fontWeight = FontWeight.Normal,
+              color = MaterialTheme.colorScheme.onBackground,
+              modifier = Modifier.weight(1f),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Text(
+                text = if (count == 1) "1 title" else "$count titles",
+                fontFamily = ManropeFamily,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+              Spacer(modifier = Modifier.width(6.dp))
+              Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+              )
             }
           }
+          HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.75.dp)
         }
       }
     }
@@ -249,98 +234,113 @@ fun HomeScreen(
 }
 
 @Composable
-private fun SectionDividerHeader(title: String) {
-  Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp)) {
+private fun EditorialSectionHeader(
+  title: String,
+  actionLabel: String? = null,
+  onActionClick: (() -> Unit)? = null,
+) {
+  Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.75.dp)
+    Spacer(modifier = Modifier.height(18.dp))
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text(
+        text = title,
+        fontFamily = BodoniModaFamily,
+        fontSize = 24.sp,
+        lineHeight = 30.sp,
+        fontWeight = FontWeight.Normal,
+        color = MaterialTheme.colorScheme.onBackground,
+      )
+      if (actionLabel != null && onActionClick != null) {
+        TextButton(
+          onClick = onActionClick,
+          contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+        ) {
+          Text(
+            text = actionLabel,
+            fontFamily = ManropeFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      }
+    }
     Spacer(modifier = Modifier.height(14.dp))
-    Text(
-      text = title,
-      fontFamily = PlayfairDisplayFamily,
-      style = MaterialTheme.typography.titleLarge,
-      color = MaterialTheme.colorScheme.onBackground,
-    )
   }
 }
 
 @Composable
-private fun ContinueReadingCard(
+private fun EditorialContinueReadingItem(
   book: Book,
-  onClick: () -> Unit,
-  onLongInspect: () -> Unit,
+  onReadClick: () -> Unit,
+  onDetailsClick: () -> Unit,
 ) {
   val edition = book.edition(book.defaultLanguageCode)
   val progress = edition?.progress?.overallProgress ?: 0f
   val pct = (progress * 100).toInt().coerceIn(0, 100)
+  val chIdx = (edition?.progress?.chapterIndex ?: 0) + 1
 
-  Surface(
-    shape = RoundedCornerShape(14.dp),
-    color = MaterialTheme.colorScheme.surfaceContainerLow,
-    border =
-      androidx.compose.foundation.BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant),
-    modifier = Modifier.width(268.dp).clickable(onClick = onClick),
+  Row(
+    modifier = Modifier.width(248.dp).clickable(onClick = onReadClick).padding(vertical = 4.dp),
+    verticalAlignment = Alignment.CenterVertically,
   ) {
-    Row(
-      modifier = Modifier.padding(12.dp),
-      verticalAlignment = Alignment.CenterVertically,
-    ) {
-      BookCoverView(
-        book = book,
-        showThickness = true,
-        elevation = 4.dp,
-        modifier = Modifier.width(64.dp),
+    BookCoverView(
+      book = book,
+      showThickness = true,
+      elevation = 5.dp,
+      modifier = Modifier.width(66.dp).clickable(onClick = onDetailsClick),
+    )
+    Spacer(modifier = Modifier.width(14.dp))
+    Column(modifier = Modifier.weight(1f)) {
+      Text(
+        text = book.title,
+        fontFamily = LiterataFamily,
+        fontSize = 15.sp,
+        lineHeight = 20.sp,
+        fontWeight = FontWeight.Medium,
+        color = MaterialTheme.colorScheme.onBackground,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
       )
-      Spacer(modifier = Modifier.width(12.dp))
-      Column(modifier = Modifier.weight(1f)) {
-        Text(
-          text = book.title,
-          style = MaterialTheme.typography.titleMedium,
-          maxLines = 2,
-          overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-          text = book.author,
-          fontFamily = LoraFamily,
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        LinearProgressIndicator(
-          progress = { progress.coerceIn(0.02f, 1f) },
-          modifier = Modifier.fillMaxWidth().height(4.dp),
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          Text(
-            text = "$pct% read",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-          Text(
-            text = "Details",
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.secondary,
-            modifier = Modifier.clickable(onClick = onLongInspect).padding(4.dp),
-          )
-        }
-      }
+      Spacer(modifier = Modifier.height(2.dp))
+      Text(
+        text = book.author,
+        fontFamily = ManropeFamily,
+        fontSize = 12.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
+      Spacer(modifier = Modifier.height(10.dp))
+      LinearProgressIndicator(
+        progress = { progress.coerceIn(0.02f, 1f) },
+        color = MaterialTheme.colorScheme.secondary,
+        trackColor = MaterialTheme.colorScheme.outlineVariant,
+        modifier = Modifier.fillMaxWidth().height(2.dp),
+      )
+      Spacer(modifier = Modifier.height(5.dp))
+      Text(
+        text = "Ch $chIdx · $pct% read",
+        fontFamily = ManropeFamily,
+        fontSize = 11.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
     }
   }
 }
 
 @Composable
-private fun ShelfBookItem(
+private fun EditorialGalleryBookItem(
   book: Book,
   onClick: () -> Unit,
 ) {
   Column(
-    modifier = Modifier.width(114.dp).clickable(onClick = onClick),
+    modifier = Modifier.width(108.dp).clickable(onClick = onClick),
   ) {
     BookCoverView(
       book = book,
@@ -348,16 +348,22 @@ private fun ShelfBookItem(
       elevation = 6.dp,
       modifier = Modifier.fillMaxWidth(),
     )
-    Spacer(modifier = Modifier.height(8.dp))
+    Spacer(modifier = Modifier.height(10.dp))
     Text(
       text = book.title,
-      style = MaterialTheme.typography.titleSmall,
+      fontFamily = LiterataFamily,
+      fontSize = 14.sp,
+      lineHeight = 19.sp,
+      fontWeight = FontWeight.Normal,
+      color = MaterialTheme.colorScheme.onBackground,
       maxLines = 2,
       overflow = TextOverflow.Ellipsis,
     )
+    Spacer(modifier = Modifier.height(2.dp))
     Text(
       text = book.author,
-      style = MaterialTheme.typography.bodySmall,
+      fontFamily = ManropeFamily,
+      fontSize = 12.sp,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
       maxLines = 1,
       overflow = TextOverflow.Ellipsis,

@@ -50,6 +50,41 @@ enum class LanguageCode(val code: String, val displayNameEn: String, val display
   }
 }
 
+enum class SectionRole(val id: String, val labelEn: String, val labelAm: String) {
+  TITLE_PAGE("title_page", "Title Page", "የርዕስ ገጽ"),
+  PREFACE("preface", "Preface", "መቅድም"),
+  FOREWORD("foreword", "Foreword", "መንደርደሪያ"),
+  INTRODUCTION("introduction", "Introduction", "መግቢያ"),
+  TABLE_OF_CONTENTS("table_of_contents", "Table of Contents", "ማውጫ"),
+  CHAPTER("chapter", "Chapter", "ምዕራፍ"),
+  CONCLUSION("conclusion", "Conclusion", "ማጠቃለያ"),
+  APPENDIX("appendix", "Appendix", "አባሪ"),
+  REFERENCES("references", "References", "ማጣቀሻዎች");
+
+  companion object {
+    fun fromId(id: String?): SectionRole = entries.firstOrNull { it.id == id } ?: CHAPTER
+  }
+}
+
+enum class HeadingConfidence(val id: String, val labelEn: String) {
+  HIGH("high", "High"),
+  MEDIUM("medium", "Medium"),
+  LOW("low", "Review"),
+  MANUAL("manual", "Manual");
+
+  companion object {
+    fun fromId(id: String?): HeadingConfidence = entries.firstOrNull { it.id == id } ?: HIGH
+  }
+}
+
+data class TocEntry(
+  val title: String,
+  val chapterId: String = "",
+  val chapterIndex: Int = 0,
+  val pageLabel: String = "",
+  val role: SectionRole = SectionRole.CHAPTER,
+)
+
 data class ChapterMeta(
   val id: String,
   val index: Int,
@@ -57,6 +92,9 @@ data class ChapterMeta(
   val fileName: String,
   val wordCount: Int = 0,
   val estimatedMinutes: Int = 1,
+  val role: SectionRole = SectionRole.CHAPTER,
+  val confidence: HeadingConfidence = HeadingConfidence.HIGH,
+  val needsReview: Boolean = false,
 )
 
 data class ChapterContent(
@@ -68,13 +106,30 @@ data class EditableChapterDraft(
   val id: String,
   val title: String,
   val bodyText: String,
+  val role: SectionRole = SectionRole.CHAPTER,
+  val confidence: HeadingConfidence = HeadingConfidence.HIGH,
+  val needsReview: Boolean = false,
+  val detectionNote: String = "",
+  val isIncluded: Boolean = true,
 )
 
 data class ReadingProgress(
   val chapterIndex: Int = 0,
   val paragraphIndex: Int = 0,
   val scrollOffset: Int = 0,
+  val charOffset: Int = 0,
+  val chapterId: String = "",
+  val paragraphId: String = "",
   val overallProgress: Float = 0f,
+  val lastUpdatedAt: Long = 0L,
+)
+
+data class AudioProgress(
+  val chapterIndex: Int = 0,
+  val chapterId: String = "",
+  val paragraphIndex: Int = 0,
+  val sentenceIndex: Int = 0,
+  val charOffset: Int = 0,
   val lastUpdatedAt: Long = 0L,
 )
 
@@ -85,7 +140,9 @@ data class BookEdition(
   val bundledCoverKey: String? = null,
   val accentColorHex: String = "#162032",
   val chapters: List<ChapterMeta> = emptyList(),
+  val tocEntries: List<TocEntry> = emptyList(),
   val progress: ReadingProgress = ReadingProgress(),
+  val audioProgress: AudioProgress = AudioProgress(),
 ) {
   val totalWords: Int
     get() = chapters.sumOf { it.wordCount }
@@ -193,6 +250,10 @@ data class BookEditorDraft(
   val coverImagePath: String? = null,
   val bundledCoverKey: String? = null,
   val chapters: List<EditableChapterDraft> = emptyList(),
+  val tocEntries: List<TocEntry> = emptyList(),
+  val showTitlePage: Boolean = true,
+  val showTableOfContents: Boolean = true,
+  val detectionSummary: String = "",
 )
 
 enum class DuplicateResolution {

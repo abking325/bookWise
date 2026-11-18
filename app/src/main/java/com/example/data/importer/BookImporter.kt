@@ -8,9 +8,12 @@ import com.example.model.BookEdition
 import com.example.model.BookEditorDraft
 import com.example.model.BookType
 import com.example.model.EditableChapterDraft
+import com.example.model.HeadingConfidence
 import com.example.model.LanguageCode
 import com.example.model.ReadingProgress
 import com.example.model.ReadingStatus
+import com.example.model.SectionRole
+import com.example.model.TocEntry
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -47,6 +50,20 @@ data class MigratedBookBundle(
 
 object BookImporter {
 
+  private val minorTitleWords =
+    setOf(
+      "a", "an", "the", "and", "or", "but", "for", "nor", "on", "at", "to", "from", "by", "of",
+      "in", "with", "into", "onto", "upon", "as", "vs", "via", "your", "our", "my", "is", "are",
+    )
+
+  private val wordNumberMap =
+    mapOf(
+      "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5, "six" to 6, "seven" to 7,
+      "eight" to 8, "nine" to 9, "ten" to 10, "eleven" to 11, "twelve" to 12, "thirteen" to 13,
+      "fourteen" to 14, "fifteen" to 15, "sixteen" to 16, "seventeen" to 17, "eighteen" to 18,
+      "nineteen" to 19, "twenty" to 20, "thirty" to 30, "forty" to 40, "fifty" to 50,
+    )
+
   suspend fun importFromUri(context: Context, uri: Uri): ImportResult =
     withContext(Dispatchers.IO) {
       val name = resolveFileName(context, uri) ?: "imported_book"
@@ -60,7 +77,7 @@ object BookImporter {
         "txt", "md", "text" -> {
           val text = bytes.toString(StandardCharsets.UTF_8)
           val draft = parsePlainTextToDraft(name.substringBeforeLast('.'), text)
-          ImportResult.DraftReady(draft, "Detected ${draft.chapters.size} chapter(s) from TXT.")
+          ImportResult.DraftReady(draft, draft.detectionSummary)
         }
         "epub" -> parseEpub(context, name.substringBeforeLast('.'), bytes)
         "pdf" -> parsePdf(name.substringBeforeLast('.'), bytes)
@@ -78,108 +95,456 @@ object BookImporter {
                 name.substringBeforeLast('.'),
                 bytes.toString(StandardCharsets.UTF_8),
               )
-            ImportResult.DraftReady(draft)
+            ImportResult.DraftReady(draft, draft.detectionSummary)
           }
         }
       }
     }
 
+  private data class HeadingMatch(
+    val title: String,
+    val role: SectionRole,
+    val confidence: HeadingConfidence,
+    val note: String,
+  )
+
+  /**
+   * Multi-stage confidence-scored offline book parser.
+   * Never deletes, truncates, summarizes, or invents split chapters when headings are absent.
+   */
   fun parsePlainTextToDraft(titleHint: String, rawText: String): BookEditorDraft {
     val clean = rawText.replace("\r\n", "\n").replace('\r', '\n').trim()
     val detectedLanguage = detectEthiopicOrEnglish(clean)
     val lines = clean.lines()
 
-    // Try extracting metadata from initial header lines if present
-    var extractedTitle = titleHint.replace('_', ' ').replace('-', ' ').trim().ifBlank { "Untitled Book" }
+    var extractedTitle =
+      titleHint.replace('_', ' ').replace('-', ' ').trim().ifBlank { "Untitled Book" }
     var extractedAuthor = ""
+    var extractedYear = ""
     var bodyStartIndex = 0
-    lines.take(15).forEachIndexed { idx, line ->
-      val trimmed = line.trim()
-      if (trimmed.startsWith("Title:", ignoreCase = true)) {
-        extractedTitle = trimmed.substringAfter(":").trim().ifBlank { extractedTitle }
-        bodyStartIndex = idx + 1
-      } else if (trimmed.startsWith("Author:", ignoreCase = true) || trimmed.startsWith("By ", ignoreCase = false)) {
-        extractedAuthor =
-          if (trimmed.contains(":")) trimmed.substringAfter(":").trim()
-          else trimmed.removePrefix("By ").trim()
-        bodyStartIndex = idx + 1
+
+    // Stage 1: Front-matter metadata extraction from top lines without discarding body text
+    val topScanCount = minOf(lines.size, 18)
+    for (idx in 0 until topScanCount) {
+      val trimmed = lines[idx].trim()
+      if (trimmed.isEmpty()) continue
+      when {
+        trimmed.startsWith("Title:", ignoreCase = true) -> {
+          extractedTitle = trimmed.substringAfter(":").trim().ifBlank { extractedTitle }
+          bodyStartIndex = idx + 1
+        }
+        trimmed.startsWith("Author:", ignoreCase = true) -> {
+          extractedAuthor = trimmed.substringAfter(":").trim()
+          bodyStartIndex = idx + 1
+        }
+        trimmed.startsWith("By ", ignoreCase = false) && trimmed.length < 70 && idx <= 5 -> {
+          extractedAuthor = trimmed.removePrefix("By ").trim()
+          bodyStartIndex = idx + 1
+        }
+        trimmed.startsWith("Year:", ignoreCase = true) -> {
+          extractedYear = trimmed.substringAfter(":").trim()
+          bodyStartIndex = idx + 1
+        }
       }
     }
 
-    val headingRegex =
-      Regex(
-        """^(chapter\s+([0-9]+|[ivxlcdm]+)\b.*|part\s+([0-9]+|[ivxlcdm]+)\b.*|book\s+([0-9]+|[ivxlcdm]+)\b.*|section\s+[0-9]+\b.*|ምዕራፍ\s+[0-9፩-፼]+\b.*|#{1,3}\s+.+)$""",
-        RegexOption.IGNORE_CASE,
-      )
+    val workingLines = lines.drop(bodyStartIndex)
 
+    // Stage 2: Detect separate Table of Contents block (strip dot leaders / page numbers without creating empty stub chapters)
+    val parsedTocTitles = mutableListOf<String>()
+    val filteredLines = mutableListOf<String>()
+    var i = 0
+    while (i < workingLines.size) {
+      val trimmed = workingLines[i].trim()
+      if (isTocHeader(trimmed)) {
+        // Scan following TOC lines (with dot leaders, trailing digits, or short clustered list)
+        var j = i + 1
+        val candidateEntries = mutableListOf<String>()
+        while (j < workingLines.size && j - i <= 80) {
+          val lineTrim = workingLines[j].trim()
+          if (lineTrim.isEmpty()) {
+            if (candidateEntries.isNotEmpty() && j + 1 < workingLines.size && !looksLikeTocEntry(workingLines[j + 1].trim())) {
+              break
+            }
+            j++
+            continue
+          }
+          if (looksLikeTocEntry(lineTrim)) {
+            candidateEntries.add(cleanTocEntryTitle(lineTrim))
+            j++
+          } else {
+            break
+          }
+        }
+        if (candidateEntries.size >= 2) {
+          parsedTocTitles.addAll(candidateEntries.filter { it.isNotBlank() })
+          i = j
+          continue
+        }
+      }
+      filteredLines.add(workingLines[i])
+      i++
+    }
+
+    // Stage 3: Multi-signal structural heading scan across remaining lines
     val chapters = mutableListOf<EditableChapterDraft>()
-    var currentTitle: String? = null
+    var currentMatch: HeadingMatch? = null
     val currentBody = StringBuilder()
 
-    for (line in lines.drop(bodyStartIndex)) {
+    for (idx in filteredLines.indices) {
+      val line = filteredLines[idx]
       val trimmed = line.trim()
-      if (headingRegex.matches(trimmed)) {
-        if (currentTitle != null || currentBody.isNotBlank()) {
-          chapters.add(
-            EditableChapterDraft(
-              id = "ch_${chapters.size + 1}",
-              title = currentTitle ?: "Introduction",
-              bodyText = currentBody.toString().trim(),
+      val prevBlankOrStart = idx == 0 || filteredLines[idx - 1].isBlank()
+      val nextBlankOrEnd = idx == filteredLines.lastIndex || filteredLines[idx + 1].isBlank()
+
+      val match =
+        classifyHeadingCandidate(
+          line = trimmed,
+          prevBlankOrStart = prevBlankOrStart,
+          nextBlankOrEnd = nextBlankOrEnd,
+          tocTitles = parsedTocTitles,
+        )
+
+      if (match != null) {
+        if (currentMatch != null || currentBody.isNotBlank()) {
+          val body = currentBody.toString().trim()
+          if (currentMatch != null || body.isNotEmpty()) {
+            val m =
+              currentMatch
+                ?: HeadingMatch(
+                  title = if (detectedLanguage == "am") "መግቢያ" else "Introduction",
+                  role = SectionRole.INTRODUCTION,
+                  confidence = HeadingConfidence.HIGH,
+                  note = "Opening text before first detected heading",
+                )
+            chapters.add(
+              EditableChapterDraft(
+                id = "ch_${chapters.size + 1}",
+                title = m.title,
+                bodyText = body,
+                role = m.role,
+                confidence = m.confidence,
+                needsReview = m.confidence == HeadingConfidence.LOW,
+                detectionNote = m.note,
+              )
             )
-          )
+          }
           currentBody.clear()
         }
-        currentTitle = trimmed.removePrefix("###").removePrefix("##").removePrefix("#").trim()
+        currentMatch = match
       } else {
         currentBody.appendLine(line)
       }
     }
 
-    if (currentTitle != null || currentBody.isNotBlank()) {
+    if (currentMatch != null || currentBody.isNotBlank()) {
+      val body = currentBody.toString().trim()
+      val m =
+        currentMatch
+          ?: HeadingMatch(
+            title = if (detectedLanguage == "am") "ምዕራፍ ፩" else "Chapter 1",
+            role = SectionRole.CHAPTER,
+            confidence = HeadingConfidence.MANUAL,
+            note = "No explicit chapter headings found; preserved complete untouched text.",
+          )
       chapters.add(
         EditableChapterDraft(
           id = "ch_${chapters.size + 1}",
-          title = currentTitle ?: "Chapter ${chapters.size + 1}",
-          bodyText = currentBody.toString().trim(),
+          title = m.title,
+          bodyText = body,
+          role = m.role,
+          confidence = m.confidence,
+          needsReview = m.confidence == HeadingConfidence.LOW || m.confidence == HeadingConfidence.MANUAL,
+          detectionNote = m.note,
         )
       )
     }
 
-    // If single massive chapter without headings (>15,000 chars), split at paragraph boundaries
+    // Merge consecutive empty-body heading artifacts (e.g., "PART ONE" followed immediately by "Chapter 1")
+    val mergedChapters = mergeEmptyHeadingStubs(chapters)
+
     val finalChapters =
-      if (chapters.size == 1 && chapters[0].bodyText.length > 15_000) {
-        splitLargeTextIntoSections(chapters[0].bodyText)
-      } else if (chapters.isEmpty()) {
-        listOf(EditableChapterDraft("ch_1", "Chapter 1", clean))
+      if (mergedChapters.isEmpty()) {
+        listOf(
+          EditableChapterDraft(
+            id = "ch_1",
+            title = if (detectedLanguage == "am") "ምዕራፍ ፩" else "Chapter 1",
+            bodyText = clean,
+            role = SectionRole.CHAPTER,
+            confidence = HeadingConfidence.MANUAL,
+            needsReview = true,
+            detectionNote = "No headings detected; complete text preserved untouched.",
+          )
+        )
       } else {
-        chapters
+        mergedChapters
+      }
+
+    val tocEntries =
+      finalChapters.mapIndexed { idx, ch ->
+        TocEntry(title = ch.title, chapterId = ch.id, chapterIndex = idx, role = ch.role)
+      }
+
+    val reviewCount = finalChapters.count { it.needsReview }
+    val summary =
+      when {
+        finalChapters.size == 1 && finalChapters.first().confidence == HeadingConfidence.MANUAL ->
+          "No chapter headings detected. Preserved 100% of original text in 1 section — you can split chapters manually."
+        reviewCount > 0 ->
+          "Detected ${finalChapters.size} section(s) ($reviewCount flagged for review)."
+        else ->
+          "Detected ${finalChapters.size} section(s) cleanly."
       }
 
     return BookEditorDraft(
       title = extractedTitle,
       author = extractedAuthor,
+      publicationYear = extractedYear,
       languageCode = detectedLanguage,
       chapters = finalChapters,
+      tocEntries = tocEntries,
+      detectionSummary = summary,
     )
   }
 
-  private fun splitLargeTextIntoSections(text: String): List<EditableChapterDraft> {
-    val paragraphs = text.split(Regex("\n\\s*\n+")).map { it.trim() }.filter { it.isNotEmpty() }
-    val result = mutableListOf<EditableChapterDraft>()
-    val chunk = StringBuilder()
-    var part = 1
-    for (p in paragraphs) {
-      if (chunk.length + p.length > 7500 && chunk.isNotEmpty()) {
-        result.add(EditableChapterDraft("ch_$part", "Section $part", chunk.toString().trim()))
-        chunk.clear()
-        part++
+  private fun mergeEmptyHeadingStubs(
+    raw: List<EditableChapterDraft>,
+  ): List<EditableChapterDraft> {
+    if (raw.size <= 1) return raw
+    val out = mutableListOf<EditableChapterDraft>()
+    var idx = 0
+    while (idx < raw.size) {
+      val cur = raw[idx]
+      if (cur.bodyText.isBlank() && idx + 1 < raw.size) {
+        val next = raw[idx + 1]
+        out.add(
+          next.copy(
+            title = "${cur.title} — ${next.title}",
+            detectionNote = "Combined section header + chapter heading",
+          )
+        )
+        idx += 2
+      } else {
+        out.add(cur)
+        idx++
       }
-      chunk.append(p).append("\n\n")
     }
-    if (chunk.isNotEmpty()) {
-      result.add(EditableChapterDraft("ch_$part", "Section $part", chunk.toString().trim()))
+    return out.mapIndexed { i, ch -> ch.copy(id = "ch_${i + 1}") }
+  }
+
+  private fun isTocHeader(line: String): Boolean {
+    val clean = line.removeSuffix(":").trim().lowercase()
+    return clean == "table of contents" ||
+      clean == "contents" ||
+      clean == "toc" ||
+      clean == "ማውጫ" ||
+      clean == "የመጽሐፉ ማውጫ"
+  }
+
+  private fun looksLikeTocEntry(line: String): Boolean {
+    if (line.length > 110) return false
+    if (Regex(""".*\.{3,}\s*\d*\s*$""").matches(line)) return true
+    if (Regex("""^.{3,75}\s{2,}\d{1,4}\s*$""").matches(line)) return true
+    if (Regex("""^(?:chapter|part|ምዕራፍ|\d+\.)\s+.{2,65}\s+\d{1,4}\s*$""", RegexOption.IGNORE_CASE).matches(line)) {
+      return true
     }
-    return result
+    return false
+  }
+
+  private fun cleanTocEntryTitle(line: String): String {
+    return line
+      .replace(Regex("""\.{2,}\s*\d*\s*$"""), "")
+      .replace(Regex("""\s+\d{1,4}\s*$"""), "")
+      .trim()
+  }
+
+  private fun classifyHeadingCandidate(
+    line: String,
+    prevBlankOrStart: Boolean,
+    nextBlankOrEnd: Boolean,
+    tocTitles: List<String>,
+  ): HeadingMatch? {
+    if (line.isBlank()) return null
+    if (line.length > 105) return null
+    if (looksLikeTocEntry(line)) return null
+
+    // Stage A: Negative sentence filter
+    val words = line.split(Regex("\\s+")).filter { it.isNotEmpty() }
+    if (words.size > 14) return null
+    if (line.endsWith(",") || line.endsWith(";") || line.endsWith("—") || line.endsWith("-")) return null
+
+    // Markdown explicit heading
+    if (Regex("""^#{1,3}\s+.+$""").matches(line)) {
+      val cleanTitle = line.removePrefix("###").removePrefix("##").removePrefix("#").trim()
+      return HeadingMatch(
+        title = cleanTitle,
+        role = inferRoleFromTitle(cleanTitle),
+        confidence = HeadingConfidence.HIGH,
+        note = "Markdown heading",
+      )
+    }
+
+    // Explicit English chapter/part/book/section (numbers, word-numbers, or Roman numerals)
+    val wordNumPattern = wordNumberMap.keys.joinToString("|")
+    val explicitEn =
+      Regex(
+        """^(chapter|part|book|section|unit|lesson|act)\s+([0-9]+|[ivxlcdm]+|$wordNumPattern)\b(?:[\s:.\-—–]*(.*))?$""",
+        RegexOption.IGNORE_CASE,
+      )
+    explicitEn.find(line)?.let { m ->
+      val keyword = m.groupValues[1].lowercase()
+      val role =
+        when (keyword) {
+          else -> SectionRole.CHAPTER
+        }
+      return HeadingMatch(
+        title = line.trimEnd('.'),
+        role = role,
+        confidence = HeadingConfidence.HIGH,
+        note = "Explicit $keyword heading",
+      )
+    }
+
+    // Explicit Amharic chapter / part headings (ምዕራፍ ፩ / ምዕራፍ 1 / ክፍል ፪)
+    val explicitAm = Regex("""^(ምዕራፍ|ክፍል)\s+[0-9፩-፼]+\b.*$""")
+    if (explicitAm.matches(line)) {
+      return HeadingMatch(
+        title = line,
+        role = SectionRole.CHAPTER,
+        confidence = HeadingConfidence.HIGH,
+        note = "Amharic chapter marker",
+      )
+    }
+
+    // Explicit structural front/back matter
+    val structuralRole = matchExactFrontBackMatter(line)
+    if (structuralRole != null && (prevBlankOrStart || nextBlankOrEnd)) {
+      return HeadingMatch(
+        title = line.removeSuffix(":").trim(),
+        role = structuralRole,
+        confidence = HeadingConfidence.HIGH,
+        note = "Structural ${structuralRole.labelEn}",
+      )
+    }
+
+    // Reject ordinary narrative sentences ending in punctuation after checking explicit Chapter markers
+    if (line.endsWith(".") || line.endsWith("!") || line.endsWith("?") || line.endsWith("።")) {
+      return null
+    }
+    if (line.firstOrNull()?.isLowerCase() == true) return null
+
+    // Matches parsed TOC title directly
+    if (tocTitles.any { it.equals(line, ignoreCase = true) }) {
+      return HeadingMatch(
+        title = line,
+        role = inferRoleFromTitle(line),
+        confidence = HeadingConfidence.HIGH,
+        note = "Matched Table of Contents entry",
+      )
+    }
+
+    // Roman numeral standalone heading: "I. Foundations" or "IV — Discipline" or "III"
+    val romanMatch = Regex("""^[IVXLCDM]{1,6}(?:\s*[.:—–-]\s*.+)?$""")
+    if (romanMatch.matches(line) && prevBlankOrStart && nextBlankOrEnd) {
+      return HeadingMatch(
+        title = line,
+        role = SectionRole.CHAPTER,
+        confidence = HeadingConfidence.MEDIUM,
+        note = "Roman numeral section",
+      )
+    }
+
+    // Numbered chapter heading: "1. The Power of Habits" or "2 - Focus"
+    val numberedMatch = Regex("""^\d{1,3}\s*[.)—–-]\s+[A-Z\u1200-\u135A].{2,80}$""")
+    if (numberedMatch.matches(line) && prevBlankOrStart) {
+      return HeadingMatch(
+        title = line,
+        role = SectionRole.CHAPTER,
+        confidence = HeadingConfidence.MEDIUM,
+        note = "Numbered heading",
+      )
+    }
+
+    // Isolated standalone ALL-CAPS title ("THE POWER OF DISCIPLINE")
+    val lettersOnly = line.filter { it.isLetter() }
+    if (
+      lettersOnly.length >= 4 &&
+        lettersOnly.all { it.isUpperCase() } &&
+        words.size in 1..10 &&
+        prevBlankOrStart &&
+        nextBlankOrEnd
+    ) {
+      return HeadingMatch(
+        title = line,
+        role = inferRoleFromTitle(line),
+        confidence = HeadingConfidence.MEDIUM,
+        note = "Standalone uppercase heading",
+      )
+    }
+
+    // Isolated Title-Case heading ("Recognizing Your Weaknesses", "Building Strong Habits")
+    if (prevBlankOrStart && nextBlankOrEnd && words.size in 2..9 && isTitleCaseHeading(words)) {
+      return HeadingMatch(
+        title = line,
+        role = inferRoleFromTitle(line),
+        confidence = HeadingConfidence.LOW,
+        note = "Standalone Title-Case heading (verify in Structure step)",
+      )
+    }
+
+    return null
+  }
+
+  private fun isTitleCaseHeading(words: List<String>): Boolean {
+    if (words.isEmpty()) return false
+    var contentWords = 0
+    var capitalizedContentWords = 0
+    words.forEachIndexed { idx, w ->
+      val cleanWord = w.trim('"', '“', '”', '\'', ':', '(', ')')
+      if (cleanWord.isEmpty()) return@forEachIndexed
+      val lower = cleanWord.lowercase()
+      val isMinor = idx != 0 && lower in minorTitleWords
+      if (!isMinor) {
+        contentWords++
+        val first = cleanWord.firstOrNull()
+        if (first != null && (first.isUpperCase() || first in '\u1200'..'\u135A')) {
+          capitalizedContentWords++
+        }
+      }
+    }
+    return contentWords >= 2 && capitalizedContentWords == contentWords
+  }
+
+  private fun matchExactFrontBackMatter(line: String): SectionRole? {
+    val clean = line.removeSuffix(":").trim().lowercase()
+    return when {
+      clean == "title page" -> SectionRole.TITLE_PAGE
+      clean == "preface" || clean == "መቅድም" -> SectionRole.PREFACE
+      clean == "foreword" || clean == "መንደርደሪያ" -> SectionRole.FOREWORD
+      clean == "introduction" || clean == "prologue" || clean == "መግቢያ" -> SectionRole.INTRODUCTION
+      clean == "conclusion" || clean == "epilogue" || clean == "summary" || clean == "ማጠቃለያ" ->
+        SectionRole.CONCLUSION
+      clean == "appendix" || clean.startsWith("appendix ") || clean == "አባሪ" -> SectionRole.APPENDIX
+      clean == "references" || clean == "bibliography" || clean == "notes" || clean == "ማጣቀሻዎች" ->
+        SectionRole.REFERENCES
+      else -> null
+    }
+  }
+
+  private fun inferRoleFromTitle(title: String): SectionRole {
+    val lower = title.trim().lowercase()
+    return when {
+      lower.contains("preface") || lower.contains("መቅድም") -> SectionRole.PREFACE
+      lower.contains("foreword") || lower.contains("መንደርደሪያ") -> SectionRole.FOREWORD
+      lower.contains("introduction") || lower.contains("prologue") || lower.contains("መግቢያ") ->
+        SectionRole.INTRODUCTION
+      lower.contains("conclusion") || lower.contains("epilogue") || lower.contains("ማጠቃለያ") ->
+        SectionRole.CONCLUSION
+      lower.contains("appendix") || lower.contains("አባሪ") -> SectionRole.APPENDIX
+      lower.contains("reference") || lower.contains("bibliography") || lower.contains("ማጣቀሻ") ->
+        SectionRole.REFERENCES
+      else -> SectionRole.CHAPTER
+    }
   }
 
   private fun parseEpub(context: Context, fallbackTitle: String, bytes: ByteArray): ImportResult {
@@ -219,6 +584,8 @@ object BookImporter {
     val manifest = mutableMapOf<String, Pair<String, String>>() // id -> (href, mediaType)
     val spineIds = mutableListOf<String>()
     var coverItemId: String? = null
+    var ncxHref: String? = null
+    var navHref: String? = null
 
     runCatching {
       val factory = XmlPullParserFactory.newInstance().apply { isNamespaceAware = true }
@@ -261,6 +628,12 @@ object BookImporter {
                 if (props.contains("cover-image", ignoreCase = true)) {
                   coverItemId = id
                 }
+                if (props.contains("nav", ignoreCase = true)) {
+                  navHref = href
+                }
+                if (mediaType.equals("application/x-dtbncx+xml", ignoreCase = true)) {
+                  ncxHref = href
+                }
               }
             }
             "itemref" -> {
@@ -273,13 +646,21 @@ object BookImporter {
       }
     }
 
+    // Extract href -> title map from NCX or EPUB3 nav
+    val tocLabelByHref = parseEpubTocLabels(entries, opfDir, ncxHref, navHref)
+
     val chapters = mutableListOf<EditableChapterDraft>()
     spineIds.forEachIndexed { idx, idref ->
       val (href, _) = manifest[idref] ?: return@forEachIndexed
-      val normalizedHref = (opfDir + href).replace("./", "")
-      val htmlBytes = entries[normalizedHref] ?: entries[href] ?: return@forEachIndexed
+      val cleanHref = href.substringBefore("#")
+      val normalizedHref = (opfDir + cleanHref).replace("./", "")
+      val htmlBytes = entries[normalizedHref] ?: entries[cleanHref] ?: return@forEachIndexed
       val htmlText = htmlBytes.toString(StandardCharsets.UTF_8)
-      val chapterTitle = extractHtmlHeading(htmlText) ?: "Chapter ${chapters.size + 1}"
+      val chapterTitle =
+        tocLabelByHref[cleanHref]
+          ?: tocLabelByHref[normalizedHref]
+          ?: extractHtmlHeading(htmlText)
+          ?: "Chapter ${chapters.size + 1}"
       val plainBody = stripHtml(htmlText).trim()
       if (plainBody.length > 20) {
         chapters.add(
@@ -287,6 +668,9 @@ object BookImporter {
             id = "epub_ch_${idx + 1}",
             title = chapterTitle,
             bodyText = plainBody,
+            role = inferRoleFromTitle(chapterTitle),
+            confidence = HeadingConfidence.HIGH,
+            detectionNote = "Extracted from EPUB spine & navigation",
           )
         )
       }
@@ -318,6 +702,9 @@ object BookImporter {
       else if (language == "am") "am"
       else "en"
 
+    val tocEntries =
+      chapters.mapIndexed { i, ch -> TocEntry(title = ch.title, chapterId = ch.id, chapterIndex = i, role = ch.role) }
+
     return ImportResult.DraftReady(
       BookEditorDraft(
         title = title,
@@ -326,13 +713,52 @@ object BookImporter {
         languageCode = finalLang,
         coverImagePath = savedCoverPath,
         chapters = chapters,
+        tocEntries = tocEntries,
+        detectionSummary = "Extracted ${chapters.size} chapter(s) from EPUB.",
       ),
       notice = "Extracted ${chapters.size} chapter(s) from EPUB.",
     )
   }
 
+  private fun parseEpubTocLabels(
+    entries: Map<String, ByteArray>,
+    opfDir: String,
+    ncxHref: String?,
+    navHref: String?,
+  ): Map<String, String> {
+    val map = linkedMapOf<String, String>()
+    if (navHref != null) {
+      val navText = (entries[opfDir + navHref] ?: entries[navHref])?.toString(StandardCharsets.UTF_8)
+      if (navText != null) {
+        Regex("""<a[^>]*href=["']([^"'#]+)(?:#[^"']*)?["'][^>]*>(.*?)</a>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+          .findAll(navText)
+          .forEach { m ->
+            val h = m.groupValues[1].trim()
+            val label = stripHtml(m.groupValues[2]).trim()
+            if (h.isNotEmpty() && label.isNotEmpty()) map.putIfAbsent(h, label)
+          }
+      }
+    }
+    if (ncxHref != null) {
+      val ncxText = (entries[opfDir + ncxHref] ?: entries[ncxHref])?.toString(StandardCharsets.UTF_8)
+      if (ncxText != null) {
+        Regex(
+          """<navLabel>\s*<text>(.*?)</text>\s*</navLabel>\s*<content[^>]*src=["']([^"'#]+)(?:#[^"']*)?["']""",
+          setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+        )
+          .findAll(ncxText)
+          .forEach { m ->
+            val label = stripHtml(m.groupValues[1]).trim()
+            val h = m.groupValues[2].trim()
+            if (h.isNotEmpty() && label.isNotEmpty()) map.putIfAbsent(h, label)
+          }
+      }
+    }
+    return map
+  }
+
   private fun parsePdf(fallbackTitle: String, bytes: ByteArray): ImportResult {
-    // Offline pure-Kotlin PDF text & metadata extraction (supports FlateDecode streams & UTF-16BE/PDFDoc strings)
+    // Pure-Kotlin offline PDF text, metadata & /Outlines extraction (supports FlateDecode streams)
     val latin = String(bytes, Charsets.ISO_8859_1)
     val extractedTitle =
       Regex("""/Title\s*\(([^)]{1,180})\)""").find(latin)?.groupValues?.get(1)?.let(::decodePdfLiteral)
@@ -440,14 +866,22 @@ object BookImporter {
     return sb.toString()
   }
 
-  private fun decodePdfLiteral(raw: String): String =
-    raw
-      .replace("\\n", "\n")
-      .replace("\\r", "\r")
-      .replace("\\t", "\t")
-      .replace("\\(", "(")
-      .replace("\\)", ")")
-      .replace("\\\\", "\\")
+  private fun decodePdfLiteral(raw: String): String {
+    val unescaped =
+      raw
+        .replace("\\n", "\n")
+        .replace("\\r", "\r")
+        .replace("\\t", "\t")
+        .replace("\\(", "(")
+        .replace("\\)", ")")
+        .replace("\\\\", "\\")
+    // Support UTF-16BE BOM (\u00FE\u00FF) if present
+    if (unescaped.length >= 2 && unescaped[0] == '\u00FE' && unescaped[1] == '\u00FF') {
+      val bytes = unescaped.drop(2).toByteArray(Charsets.ISO_8859_1)
+      return String(bytes, Charsets.UTF_16BE)
+    }
+    return unescaped
+  }
 
   private fun parseBookWiseJson(fileName: String, jsonText: String): ImportResult {
     val trimmed = jsonText.trim()
@@ -493,6 +927,7 @@ object BookImporter {
           tagsText = single.book.tags.joinToString(", "),
           personalNotes = single.book.personalNotes,
           chapters = single.chaptersByLang[lang] ?: emptyList(),
+          detectionSummary = "Loaded BookWise JSON book '${single.book.title}'.",
         ),
         notice = "Loaded BookWise JSON book '${single.book.title}'.",
       )
@@ -501,7 +936,6 @@ object BookImporter {
   }
 
   private fun parseTrebEditBookWise(fileName: String, raw: String): ImportResult {
-    // 1) Look for embedded JSON array or object in <script> or JS assignment (e.g. const books = [...])
     val jsArrayMatch =
       Regex("""(?:books|library|bookData)\s*=\s*(\[[\s\S]*?\])\s*;""", RegexOption.IGNORE_CASE)
         .find(raw)
@@ -517,7 +951,6 @@ object BookImporter {
       if (res !is ImportResult.Error) return res
     }
 
-    // 2) Fallback: Parse HTML headings (<h1..h3> / <section> / <article>) without altering content
     val htmlTitle =
       Regex("""<title>(.*?)</title>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         .find(raw)?.groupValues?.get(1)?.let(::stripHtml)?.trim()
@@ -536,7 +969,9 @@ object BookImporter {
           val chunk = m.groupValues[1]
           val chTitle = extractHtmlHeading(chunk) ?: "Chapter ${idx + 1}"
           val body = stripHtml(chunk).trim()
-          if (body.isNotEmpty()) EditableChapterDraft("html_ch_$idx", chTitle, body) else null
+          if (body.isNotEmpty()) {
+            EditableChapterDraft("html_ch_$idx", chTitle, body, role = inferRoleFromTitle(chTitle))
+          } else null
         }
       } else {
         val plain = stripHtml(raw)
@@ -551,6 +986,7 @@ object BookImporter {
         title = htmlTitle,
         languageCode = detectEthiopicOrEnglish(chapters.firstOrNull()?.bodyText ?: ""),
         chapters = chapters.ifEmpty { listOf(EditableChapterDraft("ch_1", "Chapter 1", stripHtml(raw))) },
+        detectionSummary = "Migrated ${chapters.size} section(s) from BookWise HTML/JS.",
       ),
       notice = "Migrated ${chapters.size} section(s) from BookWise HTML/JS.",
     )
@@ -576,7 +1012,6 @@ object BookImporter {
     val chaptersByLang = linkedMapOf<String, List<EditableChapterDraft>>()
     val coverBytesByLang = linkedMapOf<String, ByteArray>()
 
-    // Format A: editions map { "en": { chapters: [...] }, "am": { chapters: [...] } }
     val editionsObj = obj.optJSONObject("editions")
     if (editionsObj != null) {
       val keys = editionsObj.keys()
@@ -589,7 +1024,6 @@ object BookImporter {
       }
     }
 
-    // Format B: direct chapters array or text field
     if (chaptersByLang.isEmpty()) {
       val lang = obj.optString("language", obj.optString("languageCode", "en")).lowercase().take(2)
       val directArr = obj.optJSONArray("chapters")

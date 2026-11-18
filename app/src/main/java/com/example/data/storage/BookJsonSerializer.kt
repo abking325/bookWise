@@ -3,6 +3,7 @@ package com.example.data.storage
 import com.example.model.AppLanguage
 import com.example.model.AppSettings
 import com.example.model.AppThemeMode
+import com.example.model.AudioProgress
 import com.example.model.Book
 import com.example.model.BookEdition
 import com.example.model.BookEditorDraft
@@ -12,6 +13,7 @@ import com.example.model.Bookmark
 import com.example.model.CategoryItem
 import com.example.model.ChapterMeta
 import com.example.model.EditableChapterDraft
+import com.example.model.HeadingConfidence
 import com.example.model.Highlight
 import com.example.model.LanguageCode
 import com.example.model.NavigationStyle
@@ -19,7 +21,9 @@ import com.example.model.ReaderFont
 import com.example.model.ReaderTheme
 import com.example.model.ReadingProgress
 import com.example.model.ReadingStatus
+import com.example.model.SectionRole
 import com.example.model.TextAlignmentMode
+import com.example.model.TocEntry
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -102,7 +106,14 @@ object BookJsonSerializer {
           edition.chapters.forEach { put(chapterMetaToJson(it)) }
         },
       )
+      put(
+        "tocEntries",
+        JSONArray().apply {
+          edition.tocEntries.forEach { put(tocEntryToJson(it)) }
+        },
+      )
       put("progress", progressToJson(edition.progress))
+      put("audioProgress", audioProgressToJson(edition.audioProgress))
     }
 
   fun editionFromJson(obj: JSONObject, fallbackLang: String): BookEdition {
@@ -114,7 +125,15 @@ object BookJsonSerializer {
         add(chapterMetaFromJson(chObj, i))
       }
     }
+    val tocArr = obj.optJSONArray("tocEntries") ?: JSONArray()
+    val tocEntries = buildList {
+      for (i in 0 until tocArr.length()) {
+        val tObj = tocArr.optJSONObject(i) ?: continue
+        add(tocEntryFromJson(tObj, i))
+      }
+    }
     val progressObj = obj.optJSONObject("progress")
+    val audioObj = obj.optJSONObject("audioProgress")
     val coverPath = obj.optString("coverImagePath", "").takeIf { it.isNotBlank() && it != "null" }
     val bundledKey = obj.optString("bundledCoverKey", "").takeIf { it.isNotBlank() && it != "null" }
     return BookEdition(
@@ -124,9 +143,29 @@ object BookJsonSerializer {
       bundledCoverKey = bundledKey,
       accentColorHex = obj.optString("accentColorHex", "#162032"),
       chapters = chapters,
+      tocEntries = tocEntries,
       progress = if (progressObj != null) progressFromJson(progressObj) else ReadingProgress(),
+      audioProgress = if (audioObj != null) audioProgressFromJson(audioObj) else AudioProgress(),
     )
   }
+
+  fun tocEntryToJson(entry: TocEntry): JSONObject =
+    JSONObject().apply {
+      put("title", entry.title)
+      put("chapterId", entry.chapterId)
+      put("chapterIndex", entry.chapterIndex)
+      put("pageLabel", entry.pageLabel)
+      put("role", entry.role.id)
+    }
+
+  fun tocEntryFromJson(obj: JSONObject, fallbackIndex: Int): TocEntry =
+    TocEntry(
+      title = obj.optString("title", "Chapter ${fallbackIndex + 1}"),
+      chapterId = obj.optString("chapterId", ""),
+      chapterIndex = obj.optInt("chapterIndex", fallbackIndex),
+      pageLabel = obj.optString("pageLabel", ""),
+      role = SectionRole.fromId(obj.optString("role")),
+    )
 
   fun chapterMetaToJson(meta: ChapterMeta): JSONObject =
     JSONObject().apply {
@@ -136,6 +175,9 @@ object BookJsonSerializer {
       put("fileName", meta.fileName)
       put("wordCount", meta.wordCount)
       put("estimatedMinutes", meta.estimatedMinutes)
+      put("role", meta.role.id)
+      put("confidence", meta.confidence.id)
+      put("needsReview", meta.needsReview)
     }
 
   fun chapterMetaFromJson(obj: JSONObject, fallbackIndex: Int): ChapterMeta =
@@ -146,6 +188,9 @@ object BookJsonSerializer {
       fileName = obj.optString("fileName", "ch_$fallbackIndex.txt"),
       wordCount = obj.optInt("wordCount", 0),
       estimatedMinutes = obj.optInt("estimatedMinutes", 1),
+      role = SectionRole.fromId(obj.optString("role")),
+      confidence = HeadingConfidence.fromId(obj.optString("confidence")),
+      needsReview = obj.optBoolean("needsReview", false),
     )
 
   fun progressToJson(progress: ReadingProgress): JSONObject =
@@ -153,6 +198,9 @@ object BookJsonSerializer {
       put("chapterIndex", progress.chapterIndex)
       put("paragraphIndex", progress.paragraphIndex)
       put("scrollOffset", progress.scrollOffset)
+      put("charOffset", progress.charOffset)
+      put("chapterId", progress.chapterId)
+      put("paragraphId", progress.paragraphId)
       put("overallProgress", progress.overallProgress.toDouble())
       put("lastUpdatedAt", progress.lastUpdatedAt)
     }
@@ -162,7 +210,30 @@ object BookJsonSerializer {
       chapterIndex = obj.optInt("chapterIndex", 0),
       paragraphIndex = obj.optInt("paragraphIndex", 0),
       scrollOffset = obj.optInt("scrollOffset", 0),
+      charOffset = obj.optInt("charOffset", 0),
+      chapterId = obj.optString("chapterId", ""),
+      paragraphId = obj.optString("paragraphId", ""),
       overallProgress = obj.optDouble("overallProgress", 0.0).toFloat().coerceIn(0f, 1f),
+      lastUpdatedAt = obj.optLong("lastUpdatedAt", 0L),
+    )
+
+  fun audioProgressToJson(progress: AudioProgress): JSONObject =
+    JSONObject().apply {
+      put("chapterIndex", progress.chapterIndex)
+      put("chapterId", progress.chapterId)
+      put("paragraphIndex", progress.paragraphIndex)
+      put("sentenceIndex", progress.sentenceIndex)
+      put("charOffset", progress.charOffset)
+      put("lastUpdatedAt", progress.lastUpdatedAt)
+    }
+
+  fun audioProgressFromJson(obj: JSONObject): AudioProgress =
+    AudioProgress(
+      chapterIndex = obj.optInt("chapterIndex", 0),
+      chapterId = obj.optString("chapterId", ""),
+      paragraphIndex = obj.optInt("paragraphIndex", 0),
+      sentenceIndex = obj.optInt("sentenceIndex", 0),
+      charOffset = obj.optInt("charOffset", 0),
       lastUpdatedAt = obj.optLong("lastUpdatedAt", 0L),
     )
 
@@ -338,6 +409,8 @@ object BookJsonSerializer {
       put("ttsPitch", s.ttsPitch.toDouble())
       put("ttsDoubleTapEnabled", s.ttsDoubleTapEnabled)
       put("ttsBackgroundPlaybackEnabled", s.ttsBackgroundPlaybackEnabled)
+      put("ttsAutoAdvanceChapter", s.ttsAutoAdvanceChapter)
+      put("ttsHighlightSentence", s.ttsHighlightSentence)
       put("appLanguage", s.appLanguage.code)
     }
 
@@ -362,6 +435,8 @@ object BookJsonSerializer {
       ttsPitch = obj.optDouble("ttsPitch", 1.0).toFloat().coerceIn(0.6f, 1.6f),
       ttsDoubleTapEnabled = obj.optBoolean("ttsDoubleTapEnabled", true),
       ttsBackgroundPlaybackEnabled = obj.optBoolean("ttsBackgroundPlaybackEnabled", true),
+      ttsAutoAdvanceChapter = obj.optBoolean("ttsAutoAdvanceChapter", true),
+      ttsHighlightSentence = obj.optBoolean("ttsHighlightSentence", true),
       appLanguage = AppLanguage.fromCode(obj.optString("appLanguage")),
     )
 
@@ -381,6 +456,13 @@ object BookJsonSerializer {
       put("personalNotes", draft.personalNotes)
       put("coverImagePath", draft.coverImagePath ?: JSONObject.NULL)
       put("bundledCoverKey", draft.bundledCoverKey ?: JSONObject.NULL)
+      put("showTitlePage", draft.showTitlePage)
+      put("showTableOfContents", draft.showTableOfContents)
+      put("detectionSummary", draft.detectionSummary)
+      put(
+        "tocEntries",
+        JSONArray().apply { draft.tocEntries.forEach { put(tocEntryToJson(it)) } },
+      )
       put(
         "chapters",
         JSONArray().apply {
@@ -390,6 +472,11 @@ object BookJsonSerializer {
                 put("id", ch.id)
                 put("title", ch.title)
                 put("bodyText", ch.bodyText)
+                put("role", ch.role.id)
+                put("confidence", ch.confidence.id)
+                put("needsReview", ch.needsReview)
+                put("detectionNote", ch.detectionNote)
+                put("isIncluded", ch.isIncluded)
               }
             )
           }
@@ -407,8 +494,20 @@ object BookJsonSerializer {
             id = c.optString("id", "draft_ch_$i"),
             title = c.optString("title", "Chapter ${i + 1}"),
             bodyText = c.optString("bodyText", ""),
+            role = SectionRole.fromId(c.optString("role")),
+            confidence = HeadingConfidence.fromId(c.optString("confidence")),
+            needsReview = c.optBoolean("needsReview", false),
+            detectionNote = c.optString("detectionNote", ""),
+            isIncluded = c.optBoolean("isIncluded", true),
           )
         )
+      }
+    }
+    val tocArr = obj.optJSONArray("tocEntries") ?: JSONArray()
+    val tocEntries = buildList {
+      for (i in 0 until tocArr.length()) {
+        val t = tocArr.optJSONObject(i) ?: continue
+        add(tocEntryFromJson(t, i))
       }
     }
     return BookEditorDraft(
@@ -427,6 +526,10 @@ object BookJsonSerializer {
       coverImagePath = obj.optString("coverImagePath", "").takeIf { it.isNotBlank() && it != "null" },
       bundledCoverKey = obj.optString("bundledCoverKey", "").takeIf { it.isNotBlank() && it != "null" },
       chapters = chapters,
+      tocEntries = tocEntries,
+      showTitlePage = obj.optBoolean("showTitlePage", true),
+      showTableOfContents = obj.optBoolean("showTableOfContents", true),
+      detectionSummary = obj.optString("detectionSummary", ""),
     )
   }
 }

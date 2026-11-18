@@ -1,0 +1,41 @@
+BookWise — polished homepage + personal book tools
+=================================================
+
+OPENING IN TREBEDIT (ANDROID)
+1. Extract the BookWise-Polished-Website ZIP.
+2. Open the BookWise folder in TrebEdit.
+3. Open index.html, then choose Preview/Run.
+
+WHAT CHANGED
+- Refined home hero with animated 3D book spines, realistic artwork, smooth hover/arrow/swipe navigation.
+- The carousel uses the real book covers shipped in your original website.
+- Pure-white background on Home and the site's original Manrope, Bodoni Moda, Literata and Ethiopic fonts.
+- New Add Book control (plus) in the top bar.
+- New Settings control in the top bar.
+- "Books you add" collection section at the bottom of Home.
+
+WHAT HAS NOT CHANGED
+- The original React bundle (js/app.js) and main design stylesheet (css/style.css).
+- Existing Home sections below the hero, Discover, Learn, Track, Access and reader.
+- Original bilingual content, book catalog, progress tracking, and demo payment screens.
+
+PERSONAL BOOKS
+- Use Add Book to upload a cover and enter title, author, category, year and description.
+- Optionally attach a PDF that you can open in your browser's PDF viewer.
+- New books appear in the homepage hero and "Books you add" section.
+- Personal books are stored LOCALLY in the browser's IndexedDB. They will NOT automatically sync between devices.
+- Uploaded custom books do not gain chapter-based reading in the original reader automatically.
+- Do not clear browser site data without backing up your personal materials.
+
+SETTINGS
+- Cinematic smooth / slow & gentle / no-animation mode
+- Hover-to-select controls
+- Display subtitles and natural shadows
+- Saved locally on this device
+
+ADDITIONAL FILES
+  js/bookwise-catalog.js     - mapping to the 12 original books/covers
+  js/bookwise-polish.js      - new home hero, settings, local book management
+  css/bookwise-polish.css    - custom styles layered over the original site
+
+The original BookWise source assets remain untouched.

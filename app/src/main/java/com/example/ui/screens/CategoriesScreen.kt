@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,18 +18,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -39,11 +41,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.localization.UiStrings
 import com.example.model.Book
 import com.example.model.CategoryItem
-import com.example.ui.theme.PlayfairDisplayFamily
+import com.example.ui.theme.BodoniModaFamily
+import com.example.ui.theme.ManropeFamily
 
 @Composable
 fun CategoriesScreen(
@@ -62,84 +67,115 @@ fun CategoriesScreen(
 
   Column(modifier = modifier.fillMaxSize()) {
     Row(
-      modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+      modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
       horizontalArrangement = Arrangement.SpaceBetween,
       verticalAlignment = Alignment.CenterVertically,
     ) {
-      Text(
-        text = strings.navCategories,
-        fontFamily = PlayfairDisplayFamily,
-        style = MaterialTheme.typography.headlineMedium,
-      )
+      Column {
+        Text(
+          text = strings.navCategories,
+          fontFamily = BodoniModaFamily,
+          fontSize = 28.sp,
+          lineHeight = 34.sp,
+          fontWeight = FontWeight.Normal,
+          color = MaterialTheme.colorScheme.onBackground,
+        )
+        Text(
+          text = "${categories.size} curated shelves",
+          fontFamily = ManropeFamily,
+          fontSize = 12.sp,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
       OutlinedButton(
         onClick = { showCreateDialog = true },
         shape = RoundedCornerShape(50),
-        modifier = Modifier.height(48.dp).testTag("create_category_button"),
+        border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outline),
+        modifier = Modifier.height(44.dp).testTag("create_category_button"),
       ) {
-        Icon(Icons.Filled.Add, contentDescription = "New category", modifier = Modifier.size(18.dp))
+        Icon(Icons.Filled.Add, contentDescription = "New category", modifier = Modifier.size(16.dp))
         Spacer(modifier = Modifier.width(6.dp))
-        Text("New")
+        Text("New Category", fontSize = 12.sp)
       }
     }
 
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.75.dp)
+
     LazyColumn(
       contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 100.dp),
-      verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
       items(categories, key = { it.id }) { category ->
         val matchingBooks = books.filter { it.category.equals(category.name, ignoreCase = true) }
-        Surface(
-          shape = RoundedCornerShape(14.dp),
-          color = MaterialTheme.colorScheme.surfaceContainerLow,
-          border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant),
-          modifier = Modifier.fillMaxWidth().clickable { onSelectCategory(category.name) },
+        var showMenu by remember { mutableStateOf(false) }
+
+        Row(
+          modifier =
+            Modifier.fillMaxWidth()
+              .clickable { onSelectCategory(category.name) }
+              .padding(vertical = 18.dp),
+          verticalAlignment = Alignment.CenterVertically,
         ) {
-          Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Icon(
-              imageVector = Icons.Outlined.Folder,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.secondary,
-              modifier = Modifier.size(24.dp),
+          Column(modifier = Modifier.weight(1f)) {
+            Text(
+              text = category.name,
+              fontFamily = BodoniModaFamily,
+              fontSize = 20.sp,
+              fontWeight = FontWeight.Normal,
+              color = MaterialTheme.colorScheme.onBackground,
             )
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-              Text(
-                text = category.name,
-                style = MaterialTheme.typography.titleMedium,
-              )
-              val subText =
-                if (category.subcategories.isNotEmpty()) {
-                  "${matchingBooks.size} book(s) • ${category.subcategories.joinToString(", ")}"
-                } else {
-                  "${matchingBooks.size} book(s)"
-                }
-              Text(
-                text = subText,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
+            Spacer(modifier = Modifier.height(3.dp))
+            val subText =
+              if (category.subcategories.isNotEmpty()) {
+                "${matchingBooks.size} title(s) · ${category.subcategories.joinToString(", ")}"
+              } else {
+                "${matchingBooks.size} title(s)"
+              }
+            Text(
+              text = subText,
+              fontFamily = ManropeFamily,
+              fontSize = 12.sp,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+
+          Box {
             IconButton(
-              onClick = { renamingCategory = category },
-              modifier = Modifier.size(48.dp),
-            ) {
-              Icon(Icons.Filled.Edit, contentDescription = "Rename ${category.name}")
-            }
-            IconButton(
-              onClick = { deletingCategory = category },
-              modifier = Modifier.size(48.dp),
+              onClick = { showMenu = true },
+              modifier = Modifier.size(44.dp),
             ) {
               Icon(
-                Icons.Filled.DeleteOutline,
-                contentDescription = "Delete ${category.name}",
-                tint = MaterialTheme.colorScheme.error,
+                Icons.Filled.MoreVert,
+                contentDescription = "Category options for ${category.name}",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+              )
+            }
+            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+              DropdownMenuItem(
+                text = { Text("Rename") },
+                onClick = {
+                  showMenu = false
+                  renamingCategory = category
+                },
+              )
+              DropdownMenuItem(
+                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                onClick = {
+                  showMenu = false
+                  deletingCategory = category
+                },
               )
             }
           }
+
+          Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+          )
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.75.dp)
       }
     }
   }

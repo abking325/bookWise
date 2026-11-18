@@ -219,6 +219,7 @@ class BookWiseViewModel(application: Application) : AndroidViewModel(application
     bookId: String,
     languageCode: String,
     chapterIndex: Int,
+    chapterId: String,
     paragraphIndex: Int,
     scrollOffset: Int,
     totalChapters: Int,
@@ -237,12 +238,21 @@ class BookWiseViewModel(application: Application) : AndroidViewModel(application
         progress =
           ReadingProgress(
             chapterIndex = chapterIndex,
+            chapterId = chapterId,
             paragraphIndex = paragraphIndex,
+            paragraphId = "${chapterId}_p_$paragraphIndex",
             scrollOffset = scrollOffset,
             overallProgress = overall,
             lastUpdatedAt = System.currentTimeMillis(),
           ),
       )
+    }
+  }
+
+  fun resetReadingProgress(bookId: String, languageCode: String) {
+    viewModelScope.launch {
+      repository.resetReadingProgress(bookId, languageCode)
+      _snackbarMessage.value = "Reading progress reset to start."
     }
   }
 

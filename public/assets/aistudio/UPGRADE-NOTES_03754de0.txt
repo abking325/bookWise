@@ -1,0 +1,59 @@
+BOOKWISE — PRESERVED READER EDITION (2026)
+========================================
+This upgraded TrebEdit package is built from the original BookWise ZIP.
+The original React application (js/app.js) and all original styles
+(css/style.css) are UNCHANGED. The 12 original cover images are intact.
+
+WHAT IS NEW
+- Home: interactive 3D book carousel using the original cover files.
+- Header: iPhone-like light/dark switch and Settings button.
+- Settings: 4 navigation choices, language control, cover/title options,
+  dark mode, carousel motion, and installed speech voices and rate.
+- Navigation: Top secondary bar is the new default; original floating,
+  fixed full-width bottom, and 3-line menu are optional.
+- Profile: the Access link moves under Profile; original Access route remains.
+- Books: Add/edit a title, author, category, year, and cover, with crop
+  focal-point controls; add English and Amharic editions to the same book.
+- Chapters: Add/edit/reorder chapters, paste a whole book and auto-detect
+  headings, or import TXT, Markdown, HTML or PDF.
+- Reader: original reading pages unchanged; separate Play/Pause/Next/Stop
+  browser TTS audio bar added. New imported books use a dedicated reader.
+
+HOW TO USE
+1. Extract the ZIP and open BookWise/index.html through TrebEdit Preview.
+2. Open Settings -> Manage books or Add book.
+3. Add your cover and metadata, then chapters or a whole-book file.
+4. Use the chapter detector, inspect boundaries, then save.
+5. Link Amharic by choosing that edition in the editor.
+6. In Settings choose Top Bar / Fixed Bottom / 3-line Menu / Floating.
+
+IMPORTANT LIMITATIONS / DATA SAFETY
+- Original built-in book reading chapters and progress are not rewritten.
+  Edits to their visible book cover/metadata are stored as carousel
+  overrides, leaving their original detail and reader content intact.
+- User-added books are saved in IndexedDB when browser security allows.
+  A local/session fallback is used where IndexedDB is blocked. Some
+  'content://' or private browser previews do not allow durable storage;
+  do not clear browser data before securing your original files.
+- Offline TTS requires an offline voice installed on the device.
+  Web Speech API voice availability and voice gender vary by phone.
+  Audio may be silent if the device has no compatible speech engine.
+- PDF text detection uses the open-source PDF.js parser from a CDN
+  (requires internet when first loaded). Digital text PDFs can be
+  converted to chapters. Scanned image PDFs need OCR externally.
+  When extraction fails, the PDF remains attached and manual chapters
+  remain available. Text/Markdown import works offline.
+- No server account/synchronization is configured. Data is device-local.
+- Do not overwrite the original ZIP; keep it as your restoration point.
+
+FILES ADDED
+css/bookwise-polish.css       home hero styling
+css/bookwise-upgrade.css      new optional UI and reader audio styling
+js/bookwise-catalog.js        catalog for original covers
+js/bookwise-polish.js         interactive book carousel / storage bridge
+js/bookwise-upgrade.js        settings, navigation, editor, chapters, TTS
+
+FONTS
+Bodoni Moda, Literata, Manrope, and Noto Ethiopic remain from the
+original site. Google Fonts need internet on initial load; fallback
+fonts display offline.

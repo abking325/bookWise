@@ -5,6 +5,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -29,8 +30,8 @@ import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.data.importer.BackupInspection
 import com.example.localization.UiStrings
 import com.example.model.AppLanguage
@@ -61,8 +63,10 @@ import com.example.model.NavigationStyle
 import com.example.model.ReaderFont
 import com.example.model.ReaderTheme
 import com.example.tts.OfflineVoiceInfo
-import com.example.ui.theme.PlayfairDisplayFamily
+import com.example.ui.theme.BodoniModaFamily
+import com.example.ui.theme.ManropeFamily
 import com.example.viewmodel.StorageStats
+import java.util.Locale
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -101,38 +105,37 @@ fun SettingsScreen(
 
   LazyColumn(
     modifier = modifier.fillMaxSize().testTag("settings_screen"),
-    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 104.dp),
-    verticalArrangement = Arrangement.spacedBy(16.dp),
+    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 104.dp),
+    verticalArrangement = Arrangement.spacedBy(22.dp),
   ) {
     item {
-      Text(
-        text = strings.navSettings,
-        fontFamily = PlayfairDisplayFamily,
-        style = MaterialTheme.typography.headlineMedium,
-      )
-    }
-
-    // Uninstall Backup Reminder Banner
-    item {
-      Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        modifier = Modifier.fillMaxWidth(),
-      ) {
+      Column {
+        Text(
+          text = strings.navSettings,
+          fontFamily = BodoniModaFamily,
+          fontSize = 28.sp,
+          lineHeight = 34.sp,
+          fontWeight = FontWeight.Normal,
+          color = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(modifier = Modifier.height(10.dp))
         Row(
-          modifier = Modifier.padding(14.dp),
+          modifier =
+            Modifier.fillMaxWidth()
+              .padding(vertical = 8.dp),
           verticalAlignment = Alignment.CenterVertically,
         ) {
           Icon(
             Icons.Filled.WarningAmber,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            tint = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.size(18.dp),
           )
-          Spacer(modifier = Modifier.width(12.dp))
+          Spacer(modifier = Modifier.width(10.dp))
           Text(
             text = strings.backupReminderBanner,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
         }
       }
@@ -140,32 +143,32 @@ fun SettingsScreen(
 
     // 1. APPEARANCE
     item {
-      SettingsSectionCard(title = strings.settingsAppearance) {
-        Text("Theme", style = MaterialTheme.typography.labelLarge)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      EditorialSettingsSection(title = strings.settingsAppearance) {
+        SettingsSubheading("Theme Mode")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
           AppThemeMode.entries.forEach { mode ->
-            FilterChip(
+            SettingsOptionTag(
+              label = mode.labelEn,
               selected = settings.themeMode == mode,
               onClick = { onUpdateSettings { it.copy(themeMode = mode) } },
-              label = { Text(mode.labelEn) },
             )
           }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("Navigation Style", style = MaterialTheme.typography.labelLarge)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(modifier = Modifier.height(14.dp))
+        SettingsSubheading("Navigation Style")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
           NavigationStyle.entries.forEach { style ->
-            FilterChip(
+            SettingsOptionTag(
+              label = style.labelEn,
               selected = settings.navigationStyle == style,
               onClick = { onUpdateSettings { it.copy(navigationStyle = style) } },
-              label = { Text(style.labelEn) },
               modifier = Modifier.testTag("nav_style_${style.id}"),
             )
           }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(10.dp))
         SettingsSwitchRow(
           title = "3D Carousel Perspective Depth",
           checked = settings.carouselDepthEnabled,
@@ -181,34 +184,35 @@ fun SettingsScreen(
 
     // 2. READING
     item {
-      SettingsSectionCard(title = strings.settingsReading) {
-        Text("Default Reader Font", style = MaterialTheme.typography.labelLarge)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      EditorialSettingsSection(title = strings.settingsReading) {
+        SettingsSubheading("Default Reader Typeface")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
           ReaderFont.entries.forEach { rf ->
-            FilterChip(
+            SettingsOptionTag(
+              label = rf.labelEn,
               selected = settings.readerFont == rf,
               onClick = { onUpdateSettings { it.copy(readerFont = rf) } },
-              label = { Text(rf.labelEn) },
             )
           }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("Default Reading Theme", style = MaterialTheme.typography.labelLarge)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(modifier = Modifier.height(14.dp))
+        SettingsSubheading("Default Reading Paper")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
           ReaderTheme.entries.forEach { rt ->
-            FilterChip(
+            SettingsOptionTag(
+              label = rt.labelEn,
               selected = settings.readerTheme == rt,
               onClick = { onUpdateSettings { it.copy(readerTheme = rt) } },
-              label = { Text(rt.labelEn) },
             )
           }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         Text(
           "Default Font Size: ${settings.readerFontSizeSp.toInt()}sp",
-          style = MaterialTheme.typography.labelLarge,
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Slider(
           value = settings.readerFontSizeSp,
@@ -217,8 +221,9 @@ fun SettingsScreen(
         )
 
         Text(
-          "Line Spacing: ${String.format("%.2f", settings.readerLineHeightMultiplier)}x",
-          style = MaterialTheme.typography.labelLarge,
+          "Line Spacing: ${String.format(Locale.US, "%.2f", settings.readerLineHeightMultiplier)}x",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Slider(
           value = settings.readerLineHeightMultiplier,
@@ -228,7 +233,8 @@ fun SettingsScreen(
 
         Text(
           "Page Margins: ${settings.readerMarginDp.toInt()}dp",
-          style = MaterialTheme.typography.labelLarge,
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Slider(
           value = settings.readerMarginDp,
@@ -246,13 +252,13 @@ fun SettingsScreen(
 
     // 3. AUDIO (OFFLINE TTS)
     item {
-      SettingsSectionCard(title = strings.settingsAudio) {
+      EditorialSettingsSection(title = strings.settingsAudio) {
         Text(
           text = "Only verified offline voices (no network required) are listed below.",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         if (offlineVoices.isEmpty()) {
           Text(
@@ -282,18 +288,20 @@ fun SettingsScreen(
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                   )
                   Text(
-                    text = "${voice.localeTag} • ${voice.qualityLabel} • Offline",
+                    text = "${voice.localeTag} · ${voice.qualityLabel} · Offline",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                   )
                 }
                 OutlinedButton(
                   onClick = { onPreviewVoice(voice.name, voice.localeTag) },
+                  shape = RoundedCornerShape(50),
+                  border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant),
                   modifier = Modifier.height(36.dp),
                 ) {
-                  Icon(Icons.Filled.PlayArrow, contentDescription = "Preview", modifier = Modifier.size(16.dp))
+                  Icon(Icons.Filled.PlayArrow, contentDescription = "Preview", modifier = Modifier.size(15.dp))
                   Spacer(modifier = Modifier.width(4.dp))
-                  Text("Preview", style = MaterialTheme.typography.labelSmall)
+                  Text("Preview", fontSize = 11.sp)
                 }
               }
             }
@@ -301,36 +309,38 @@ fun SettingsScreen(
         }
 
         if (!hasAmharicVoice) {
-          Spacer(modifier = Modifier.height(8.dp))
-          Surface(
-            shape = RoundedCornerShape(10.dp),
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            modifier = Modifier.fillMaxWidth(),
+          Spacer(modifier = Modifier.height(10.dp))
+          Column(
+            modifier =
+              Modifier.fillMaxWidth()
+                .padding(vertical = 6.dp),
           ) {
-            Column(modifier = Modifier.padding(10.dp)) {
-              Text(
-                text = "Amharic offline voice not detected on this device.",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-              )
-              Text(
-                text = "Install offline speech packs via Android Text-to-Speech settings to enable Amharic audio.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-              TextButton(onClick = onOpenVoiceDataSetup) {
-                Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Install Offline Voice Data")
-              }
+            Text(
+              text = "Amharic offline voice not detected on this device.",
+              style = MaterialTheme.typography.labelMedium,
+              fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+              text = "Install offline speech packs via Android Text-to-Speech settings to enable Amharic audio.",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(
+              onClick = onOpenVoiceDataSetup,
+              contentPadding = PaddingValues(0.dp),
+            ) {
+              Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(16.dp))
+              Spacer(modifier = Modifier.width(6.dp))
+              Text("Install Offline Voice Data")
             }
           }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-          "Reading Speed: ${String.format("%.2f", settings.ttsSpeechRate)}x",
-          style = MaterialTheme.typography.labelLarge,
+          "Reading Speed: ${String.format(Locale.US, "%.2f", settings.ttsSpeechRate)}x",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Slider(
           value = settings.ttsSpeechRate,
@@ -339,8 +349,9 @@ fun SettingsScreen(
         )
 
         Text(
-          "Voice Pitch: ${String.format("%.2f", settings.ttsPitch)}x",
-          style = MaterialTheme.typography.labelLarge,
+          "Voice Pitch: ${String.format(Locale.US, "%.2f", settings.ttsPitch)}x",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Slider(
           value = settings.ttsPitch,
@@ -358,18 +369,28 @@ fun SettingsScreen(
           checked = settings.ttsBackgroundPlaybackEnabled,
           onCheckedChange = { v -> onUpdateSettings { it.copy(ttsBackgroundPlaybackEnabled = v) } },
         )
+        SettingsSwitchRow(
+          title = "Auto-Advance to Next Chapter During TTS",
+          checked = settings.ttsAutoAdvanceChapter,
+          onCheckedChange = { v -> onUpdateSettings { it.copy(ttsAutoAdvanceChapter = v) } },
+        )
+        SettingsSwitchRow(
+          title = "Highlight Spoken Sentence During TTS",
+          checked = settings.ttsHighlightSentence,
+          onCheckedChange = { v -> onUpdateSettings { it.copy(ttsHighlightSentence = v) } },
+        )
       }
     }
 
     // 4. LANGUAGE
     item {
-      SettingsSectionCard(title = strings.settingsLanguage) {
+      EditorialSettingsSection(title = strings.settingsLanguage) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
           AppLanguage.entries.forEach { lang ->
-            FilterChip(
+            SettingsOptionTag(
+              label = lang.labelEn,
               selected = settings.appLanguage == lang,
               onClick = { onUpdateSettings { it.copy(appLanguage = lang) } },
-              label = { Text(lang.labelEn) },
               modifier = Modifier.testTag("app_lang_${lang.code}"),
             )
           }
@@ -379,21 +400,28 @@ fun SettingsScreen(
 
     // 5. DATA MANAGEMENT
     item {
-      SettingsSectionCard(title = strings.settingsData) {
-        val libMb = String.format("%.2f MB", storageStats.libraryBytes / (1024f * 1024f))
-        val cacheKb = String.format("%.1f KB", storageStats.cacheBytes / 1024f)
+      EditorialSettingsSection(title = strings.settingsData) {
+        val libMb = String.format(Locale.US, "%.2f MB", storageStats.libraryBytes / (1024f * 1024f))
+        val cacheKb = String.format(Locale.US, "%.1f KB", storageStats.cacheBytes / 1024f)
         Text(
-          text = "Offline Library Storage: $libMb • Temporary Cache: $cacheKb",
+          text = "Offline Library Storage: $libMb · Temporary Cache: $cacheKb",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(modifier = Modifier.height(10.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(modifier = Modifier.height(12.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
           Button(
             onClick = { exportLibraryLauncher.launch("bookwise-library-backup.zip") },
+            shape = RoundedCornerShape(50),
+            colors =
+              ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+              ),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
             modifier = Modifier.fillMaxWidth().height(48.dp).testTag("settings_backup_library_button"),
           ) {
-            Icon(Icons.Filled.Archive, contentDescription = null)
+            Icon(Icons.Filled.Archive, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text("Backup Entire Library (ZIP)")
           }
@@ -403,31 +431,39 @@ fun SettingsScreen(
                 arrayOf("application/zip", "application/json", "text/html", "*/*")
               )
             },
+            shape = RoundedCornerShape(50),
+            border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outline),
             modifier = Modifier.fillMaxWidth().height(48.dp).testTag("settings_restore_backup_button"),
           ) {
-            Icon(Icons.Filled.Restore, contentDescription = null)
+            Icon(Icons.Filled.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text("Restore Backup / Migrate BookWise")
           }
           OutlinedButton(
             onClick = { exportSettingsLauncher.launch("bookwise-settings.json") },
+            shape = RoundedCornerShape(50),
+            border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outline),
             modifier = Modifier.fillMaxWidth().height(48.dp),
           ) {
-            Icon(Icons.Filled.Download, contentDescription = null)
+            Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text("Export Settings (JSON)")
           }
           OutlinedButton(
             onClick = onOpenImportBook,
+            shape = RoundedCornerShape(50),
+            border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outline),
             modifier = Modifier.fillMaxWidth().height(48.dp),
           ) {
             Text("Import New Book (TXT / EPUB / PDF)")
           }
           OutlinedButton(
             onClick = onClearCache,
+            shape = RoundedCornerShape(50),
+            border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outline),
             modifier = Modifier.fillMaxWidth().height(48.dp),
           ) {
-            Icon(Icons.Filled.CleaningServices, contentDescription = null)
+            Icon(Icons.Filled.CleaningServices, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text("Clear Temporary Cache")
           }
@@ -436,7 +472,6 @@ fun SettingsScreen(
     }
   }
 
-  // Backup Validation & Duplicate Conflict Resolution Dialog
   pendingBackup?.let { inspection ->
     var resolution by remember { mutableStateOf(DuplicateResolution.SKIP) }
     var restoreSettings by remember { mutableStateOf(inspection.settings != null) }
@@ -497,27 +532,67 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsSectionCard(
+private fun EditorialSettingsSection(
   title: String,
   content: @Composable () -> Unit,
 ) {
+  Column(modifier = Modifier.fillMaxWidth()) {
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.75.dp)
+    Spacer(modifier = Modifier.height(16.dp))
+    Text(
+      text = title,
+      fontFamily = BodoniModaFamily,
+      fontSize = 22.sp,
+      fontWeight = FontWeight.Normal,
+      color = MaterialTheme.colorScheme.onBackground,
+    )
+    Spacer(modifier = Modifier.height(12.dp))
+    content()
+  }
+}
+
+@Composable
+private fun SettingsSubheading(text: String) {
+  Text(
+    text = text.uppercase(),
+    fontFamily = ManropeFamily,
+    fontSize = 10.sp,
+    letterSpacing = 1.2.sp,
+    color = MaterialTheme.colorScheme.onSurfaceVariant,
+  )
+  Spacer(modifier = Modifier.height(8.dp))
+}
+
+@Composable
+private fun SettingsOptionTag(
+  label: String,
+  selected: Boolean,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
   Surface(
-    shape = RoundedCornerShape(16.dp),
-    color = MaterialTheme.colorScheme.surfaceContainerLow,
-    border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant),
-    modifier = Modifier.fillMaxWidth(),
+    onClick = onClick,
+    shape = RoundedCornerShape(50),
+    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.background,
+    border =
+      BorderStroke(
+        width = 0.75.dp,
+        color =
+          if (selected) MaterialTheme.colorScheme.primary
+          else MaterialTheme.colorScheme.outlineVariant,
+      ),
+    modifier = modifier.height(36.dp),
   ) {
-    Column(modifier = Modifier.padding(16.dp)) {
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 14.dp)) {
       Text(
-        text = title,
-        fontFamily = PlayfairDisplayFamily,
-        style = MaterialTheme.typography.titleLarge,
-        color = MaterialTheme.colorScheme.onBackground,
+        text = label,
+        fontFamily = ManropeFamily,
+        fontSize = 12.sp,
+        fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+        color =
+          if (selected) MaterialTheme.colorScheme.onPrimary
+          else MaterialTheme.colorScheme.onSurfaceVariant,
       )
-      Spacer(modifier = Modifier.height(6.dp))
-      HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
-      Spacer(modifier = Modifier.height(10.dp))
-      content()
     }
   }
 }

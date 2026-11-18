@@ -8,17 +8,22 @@ import com.example.data.importer.BackupValidationResult
 import com.example.data.importer.BookImporter
 import com.example.data.importer.ImportResult
 import com.example.data.storage.BookStorageRepository
+import com.example.model.AudioProgress
 import com.example.model.BookEditorDraft
 import com.example.model.BookNote
 import com.example.model.BookType
 import com.example.model.Bookmark
 import com.example.model.DuplicateResolution
 import com.example.model.EditableChapterDraft
+import com.example.model.HeadingConfidence
 import com.example.model.Highlight
 import com.example.model.ReadingProgress
+import com.example.model.SectionRole
+import com.example.tts.OfflineTtsManager
 import java.io.File
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -40,7 +45,7 @@ class BookWiseRepositoryAndImporterTest {
   }
 
   @Test
-  fun `fresh install seeds starter books and persists bilingual editions across restart`() = runTest {
+  fun `fresh install seeds starter books and persists bilingual editions and exact progress across restart`() = runTest {
     val repo1 = BookStorageRepository(context)
     repo1.initialize()
 
@@ -48,7 +53,6 @@ class BookWiseRepositoryAndImporterTest {
     val bilingual = repo1.books.value.firstOrNull { it.editions.containsKey("am") && it.editions.containsKey("en") }
     assertNotNull(bilingual)
 
-    // Create a custom book with English edition, then link Amharic edition
     val enDraft =
       BookEditorDraft(
         title = "Notebook on Patience",
@@ -76,11 +80,31 @@ class BookWiseRepositoryAndImporterTest {
     val savedBoth = repo1.saveBookDraftEdition(amDraft)
     assertEquals(2, savedBoth.editions.size)
 
-    // Save reading progress, bookmark, highlight, and note
+    // Save reading progress with scrollOffset + chapterId + audio progress
     repo1.updateReadingProgress(
       savedBoth.id,
       "en",
-      ReadingProgress(chapterIndex = 1, paragraphIndex = 0, overallProgress = 0.75f, lastUpdatedAt = 12345L),
+      ReadingProgress(
+        chapterIndex = 1,
+        chapterId = "ch_2",
+        paragraphIndex = 0,
+        paragraphId = "ch_2_p_0",
+        scrollOffset = 148,
+        overallProgress = 0.75f,
+        lastUpdatedAt = 12345L,
+      ),
+    )
+    repo1.updateAudioProgress(
+      savedBoth.id,
+      "en",
+      AudioProgress(
+        chapterIndex = 1,
+        chapterId = "ch_2",
+        paragraphIndex = 0,
+        sentenceIndex = 1,
+        charOffset = 22,
+        lastUpdatedAt = 12999L,
+      ),
     )
     repo1.addBookmark(Bookmark("bm1", savedBoth.id, "en", 1, "Chapter 2: Clarity", 0, "Third paragraph"))
     repo1.addHighlight(Highlight("hl1", savedBoth.id, "en", 0, 1, "Second paragraph."))
@@ -92,7 +116,21 @@ class BookWiseRepositoryAndImporterTest {
     val reloaded = repo2.books.value.firstOrNull { it.id == savedBoth.id }
     assertNotNull(reloaded)
     assertEquals(2, reloaded!!.editions.size)
-    assertEquals(0.75f, reloaded.editions["en"]!!.progress.overallProgress, 0.01f)
+    val reloadedProg = reloaded.editions["en"]!!.progress
+    assertEquals(1, reloadedProg.chapterIndex)
+    assertEquals(148, reloadedProg.scrollOffset)
+    assertEquals(0.75f, reloadedProg.overallProgress, 0.01f)
+    val reloadedAudio = reloaded.editions["en"]!!.audioProgress
+    assertEquals(1, reloadedAudio.sentenceIndex)
+    assertEquals(22, reloadedAudio.charOffset)
+
+    // Reset reading progress works cleanly
+    repo2.resetReadingProgress(savedBoth.id, "en")
+    val afterReset = repo2.books.value.first { it.id == savedBoth.id }.editions["en"]!!.progress
+    assertEquals(0, afterReset.chapterIndex)
+    assertEquals(0, afterReset.paragraphIndex)
+    assertEquals(0, afterReset.scrollOffset)
+    assertEquals(0f, afterReset.overallProgress, 0.001f)
 
     val chContent = repo2.loadChapterContent(savedBoth.id, "am", 0)
     assertNotNull(chContent)
@@ -128,6 +166,55 @@ class BookWiseRepositoryAndImporterTest {
 
     repo.deleteCategory(created.id)
     assertEquals("Uncategorized", repo.books.value.first { it.id == saved.id }.category)
+  }
+
+  @Test
+  fun `multi-stage parser handles toc dot-leaders roles title-case and preserves unheaded books completely`() = runTest {
+    val structuredText =
+      """
+      Title: Habits of Quiet Focus
+      Author: Elena Brooks
+      Year: 2024
+
+      Table of Contents
+      Preface ........ 1
+      Recognizing Your Weaknesses ........ 4
+      THE POWER OF DISCIPLINE ........ 12
+      Conclusion ........ 20
+
+      Preface
+      This is the opening preface explaining why focus matters.
+
+      Recognizing Your Weaknesses
+      Every sentence ending with a period stays inside the paragraph.
+      Even this ordinary line. Must never create a false chapter split!
+
+      THE POWER OF DISCIPLINE
+      Consistency compounds over quiet seasons without noise.
+
+      Conclusion
+      Walk forward gently and consistently.
+      """.trimIndent()
+
+    val parsed = BookImporter.parsePlainTextToDraft("fallback", structuredText)
+    assertEquals("Habits of Quiet Focus", parsed.title)
+    assertEquals("Elena Brooks", parsed.author)
+    assertEquals("2024", parsed.publicationYear)
+    assertEquals(4, parsed.chapters.size)
+    assertEquals(SectionRole.PREFACE, parsed.chapters[0].role)
+    assertEquals("Recognizing Your Weaknesses", parsed.chapters[1].title)
+    assertTrue(parsed.chapters[1].bodyText.contains("Even this ordinary line."))
+    assertEquals("THE POWER OF DISCIPLINE", parsed.chapters[2].title)
+    assertEquals(SectionRole.CONCLUSION, parsed.chapters[3].role)
+
+    // Unheaded raw prose must NOT fabricate fake sections or drop a single character
+    val unheaded =
+      "First sentence of a continuous essay that contains no explicit chapter markers at all. " +
+        "Second sentence continues the thought naturally across several lines without headings."
+    val unheadedDraft = BookImporter.parsePlainTextToDraft("Continuous Essay", unheaded)
+    assertEquals(1, unheadedDraft.chapters.size)
+    assertEquals(HeadingConfidence.MANUAL, unheadedDraft.chapters.first().confidence)
+    assertTrue(unheadedDraft.chapters.first().bodyText.contains("Second sentence continues"))
   }
 
   @Test
@@ -177,6 +264,41 @@ class BookWiseRepositoryAndImporterTest {
   }
 
   @Test
+  fun `canonical paragraph formatter repairs hyphen wraps and splits unformatted long blocks on sentence boundaries`() {
+    val repo = BookStorageRepository(context)
+    val wrappedAndWall =
+      "This is a hyphen-\nated word that continues smoothly.\n\n" +
+        List(18) { "Each thoughtful sentence builds steady discipline over quiet days." }
+          .joinToString(" ")
+    val paras = repo.splitIntoParagraphs(wrappedAndWall)
+    assertTrue(paras.first().contains("hyphenated word"))
+    assertTrue(paras.size >= 3)
+    assertTrue(paras.all { it.length <= 760 })
+
+    // Amharic wall split on Ethiopic sentence marker ።
+    val amWall =
+      List(22) { "ትዕግሥትና ትጋት ለዘላቂ ዕድገት መሠረት ናቸው።" }.joinToString(" ")
+    val amParas = repo.splitIntoParagraphs(amWall)
+    assertTrue(amParas.size >= 2)
+  }
+
+  @Test
+  fun `tts sentence spans and initial hidden player state behave reliably`() {
+    val repo = BookStorageRepository(context)
+    val ttsManager = OfflineTtsManager(context, repo)
+    assertFalse(ttsManager.state.value.isPlayerVisible)
+
+    val para = "First sentence is calm. Second sentence builds clarity! Does the third ask?"
+    val spans = OfflineTtsManager.splitParagraphIntoSentenceSpans(para)
+    assertEquals(3, spans.size)
+    assertEquals("First sentence is calm.", spans[0].text)
+    assertEquals("Second sentence builds clarity!", spans[1].text)
+    assertEquals("Does the third ask?", spans[2].text)
+    assertEquals(0, spans[0].startChar)
+    assertTrue(spans[1].startChar > spans[0].endChar)
+  }
+
+  @Test
   fun `backup zip export and restore handle duplicates properly`() = runTest {
     val repo = BookStorageRepository(context)
     repo.initialize()
@@ -193,7 +315,6 @@ class BookWiseRepositoryAndImporterTest {
     assertEquals(initialCount, inspection.entries.size)
     assertEquals(initialCount, inspection.duplicateCount)
 
-    // Keep both duplicates
     val restored = BackupManager.restoreBackup(repo, inspection, DuplicateResolution.KEEP_BOTH, false)
     assertEquals(initialCount, restored)
     assertEquals(initialCount * 2, repo.books.value.size)

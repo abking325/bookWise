@@ -1,0 +1,108 @@
+/* BookWise V3 — opt-in adjustments layered after the unchanged original styling. */
+#root header [role="group"][aria-label="Language"]{display:none!important}
+.bw-header-tools{margin-left:auto;display:flex;gap:8px;align-items:center}
+.bw-header-tool{width:39px;height:39px;padding:0;border:1px solid #e6e4e0;display:grid;place-items:center;background:#fff;box-shadow:none;color:#252525}
+.bw-header-tool .bw-tool-text{display:none!important}
+.bw-header-tool svg{width:17px;height:17px}
+.bw-theme-quick{width:57px;height:31px;padding:0!important;display:flex;position:relative;background:#e7e7e5!important;border:0!important;border-radius:30px!important;transition:background .26s ease!important;color:#525252!important}
+.bw-theme-quick .bw-quick-sun,.bw-theme-quick .bw-quick-moon{position:absolute;font-size:13px;z-index:1;line-height:1}.bw-quick-sun{left:7px}.bw-quick-moon{right:8px}
+.bw-theme-quick .bw-quick-knob{position:absolute;left:3px;top:3px;width:25px;height:25px;background:#fff;border-radius:50%;box-shadow:0 1px 4px #0002;z-index:2;transition:transform .24s cubic-bezier(.2,.8,.2,1)}
+.bw-theme-quick[aria-checked="true"]{background:#383837!important;color:#eee!important}.bw-theme-quick[aria-checked="true"] .bw-quick-knob{transform:translateX(26px)}
+/* Navigation alternatives: floating remains available, but the refined top bar is default. */
+body[data-bw-nav="top"] #root header nav,body[data-bw-nav="menu"] #root header nav{display:none!important}
+body[data-bw-nav="top"] #root nav.fixed.bottom-0,body[data-bw-nav="menu"] #root nav.fixed.bottom-0{display:none!important}
+body[data-bw-nav="fixed"] #root nav.fixed.bottom-0{display:block!important;padding:0!important;bottom:0!important;inset-inline:0!important}
+body[data-bw-nav="fixed"] #root nav.fixed.bottom-0 >div{border-radius:0!important;max-width:none!important;padding:9px 15px max(12px,env(safe-area-inset-bottom))!important;box-shadow:0 -6px 24px #0000000c!important}
+.bw-secondary-nav{font-family:Manrope,"Noto Sans Ethiopic",sans-serif;background:var(--background,#fff);color:var(--foreground,#222);border-bottom:1px solid var(--border,#e9e7e4);position:sticky;top:56px;z-index:39;min-height:42px}
+.bw-nav-top{display:flex;align-items:center;justify-content:center;gap:clamp(4px,2vw,22px);padding:5px 12px;overflow:auto;scrollbar-width:none}
+.bw-nav-top::-webkit-scrollbar{display:none}
+.bw-nav-top a{font-size:clamp(10px,2.6vw,12px);font-weight:700;text-decoration:none;color:var(--foreground,#333);white-space:nowrap;padding:8px clamp(8px,2.5vw,15px);border-radius:99px;opacity:.7;transition:opacity .2s,background .2s}
+.bw-nav-top a:hover,.bw-nav-top a[aria-current="page"]{opacity:1;background:var(--secondary,#f5f4f1)}
+.bw-nav-menu{position:sticky;top:56px;z-index:45;padding:5px 19px;display:flex;justify-content:flex-end}
+.bw-nav-menu>button{border:1px solid var(--border,#e7e5df);background:var(--card,#fff);color:var(--foreground,#222);padding:6px 12px;border-radius:999px;font:750 12px Manrope;cursor:pointer}
+.bw-menu-panel{position:absolute;right:15px;top:42px;min-width:170px;display:grid;gap:2px;background:var(--card,#fff);border:1px solid var(--border,#e7e5df);padding:8px;border-radius:16px;box-shadow:0 12px 27px #0002}
+.bw-menu-panel[hidden]{display:none}.bw-menu-panel a{padding:10px 13px;text-decoration:none;color:var(--foreground);font-size:12px;border-radius:9px;font-weight:700}.bw-menu-panel a:hover{background:var(--secondary)}
+/* Home page: the existing app and card sections are preserved, only the hero is replaced. */
+body.bw-homepage{background:#fff!important}
+body.bw-homepage #root main,body.bw-homepage .bw-hero{background:#fff!important}
+.bw-hero-stage{will-change:auto}
+.bw-book{backface-visibility:hidden;transform-style:preserve-3d}
+.bw-book-face img{object-position:center;image-rendering:auto}
+body[data-bw-cover-fit="contain"] .bw-book-face img{object-fit:contain!important;background:#f7f5f0}
+body[data-bw-spine-title="false"] .bw-spine-title{visibility:hidden}
+body:not([data-bw-cover-label="overlay"]) .bw-book .bw-cover-text{display:none!important}
+.bw-v3-section{border-top:1px solid #ebe9e6;padding-top:14px;margin-top:19px}
+.bw-v3-section h3{font-family:"Bodoni Moda","Noto Serif Ethiopic",Georgia,serif;font-size:20px;margin:0 0 4px;font-weight:650}
+.bw-v3-section .bw-setting{padding:12px 0}
+.bw-v3-section .bw-setting select{max-width:170px}
+.bw-small-note{font:500 11px/1.65 Manrope,"Noto Sans Ethiopic",sans-serif;color:#85817b;margin:8px 0 2px}
+.bw-inline-actions{justify-content:flex-start!important;flex-wrap:wrap}
+.bw-v3-edtabs{display:flex;gap:8px;margin:18px 0 17px}
+.bw-v3-edtab{border:1px solid #dad8d4;color:#494541;background:#fff;border-radius:999px;padding:8px 16px;font:800 12px Manrope;cursor:pointer}
+.bw-v3-edtab.active{background:#24211e;border-color:#24211e;color:#fff}
+.bw-cover-input{display:flex;align-items:flex-start;gap:18px;margin-top:10px}
+.bw-cover-preview{flex-shrink:0;width:100px;aspect-ratio:2/3;display:grid;place-items:center;border:1px dashed #ccc;border-radius:3px;overflow:hidden;background:#f7f6f3;font:14px Georgia;color:#aaa;box-shadow:4px 7px 12px #00000013}
+.bw-cover-preview img{width:100%;height:100%;object-fit:cover}
+.bw-cover-tools{flex:1;min-width:0;display:grid;gap:9px}
+.bw-cover-tools input[type=file]{display:block;width:100%;max-width:100%;font-size:10px}
+.bw-cover-tools label{font-size:11px;font-weight:750;display:flex;flex-direction:column;gap:4px}
+.bw-cover-tools input[type=range]{width:100%;accent-color:#393633}
+.bw-upload-label{font-size:12px!important}
+.bw-cover-tools small{color:#918b85;line-height:1.5}
+.bw-import-tools{display:flex;align-items:end;gap:9px;flex-wrap:wrap;padding:8px 0}
+.bw-import-tools .bw-field{flex:1 1 150px}
+.bw-import-tools .bw-btn{padding:10px 12px}
+.bw-full-paste{border:1px solid #e7e2dc;border-radius:11px;padding:14px;margin:12px 0;background:#faf9f6;display:grid;gap:8px}
+.bw-full-paste label{font-size:12px;font-weight:800}.bw-full-paste textarea{resize:vertical;width:100%;background:#fff;border:1px solid #d9d7d2;border-radius:7px;padding:10px;font:13px/1.5 Literata,serif}
+.bw-chapter-editor{margin-top:11px;border:1px solid #e8e6e1;border-radius:10px;padding:13px;background:#fdfcfb}
+.bw-chapter-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}.bw-chapter-header strong{font:800 10px Manrope;color:#776f69;letter-spacing:.11em;text-transform:uppercase}.bw-chapter-header div{display:flex;gap:5px}
+.bw-chapter-header button{width:28px;height:26px;border:1px solid #e6e2dc;border-radius:7px;background:#fff;cursor:pointer}
+.bw-chapter-title,.bw-chapter-text{display:block;width:100%;border:1px solid #e3ded8;background:#fff;border-radius:7px;color:#292622;padding:9px;margin-top:7px}.bw-chapter-title{font:700 13px Manrope}.bw-chapter-text{font:13px/1.5 Literata,"Noto Serif Ethiopic",serif;resize:vertical}
+.bw-manager-list{display:grid;gap:9px;max-height:60vh;overflow:auto}
+.bw-manager-row{display:flex;align-items:center;gap:12px;border-bottom:1px solid #ebe9e5;padding:8px 0}
+.bw-manager-row img{width:42px;height:62px;object-fit:cover;border-radius:2px;background:#eeebe7;flex-shrink:0}
+.bw-manager-row>div{flex:1;min-width:0}.bw-manager-row strong,.bw-manager-row small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bw-manager-row strong{font:750 12px Manrope}.bw-manager-row small{font:11px Manrope;color:#86817c;margin-top:3px}
+.bw-manager-row button{padding:7px 11px}
+/* Original reader: never rewrite the text, chapter layout, or reader controls. Disable horizontal page gestures only. */
+body.bw-original-reading{touch-action:pan-y;overflow-x:hidden}
+body.bw-original-reading #root{overflow-x:hidden}
+#bwOriginalListen{position:fixed;z-index:140;right:13px;bottom:19px;background:#1e1e1e;color:#fff;border:0;border-radius:99px;padding:11px 16px;box-shadow:0 8px 27px #0002;font:750 12px Manrope;cursor:pointer}
+#bwAudioDock{position:fixed;bottom:max(12px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:min(340px,calc(100vw - 32px));background:#242321;color:#fff;z-index:170;border-radius:16px;box-shadow:0 12px 40px #0004;font-family:Manrope}
+.bw-audio-inner{display:flex;align-items:center;justify-content:space-between;gap:9px;padding:9px 11px}
+.bw-audio-label{font-size:8px;font-weight:850;letter-spacing:.14em;color:#dad7d1;line-height:1.2;white-space:nowrap}
+.bw-audio-inner>div{display:flex;align-items:center;gap:5px}.bw-audio-inner button{color:#fff;border:0;background:#ffffff19;border-radius:9px;min-width:32px;height:31px;font-size:15px;cursor:pointer}.bw-audio-inner button:first-child{background:#fff;color:#252321}
+/* New, separate reader is only used for books added by the user. */
+#bwCustomReader{position:fixed;inset:0;z-index:90;background:#fbf8f1;color:#292823;overflow:auto;overscroll-behavior:contain;touch-action:pan-y}
+body.bw-custom-reading{overflow:hidden!important}
+.bw-reader-shell{min-height:100%;padding:0 18px 100px}
+.bw-reader-top{max-width:750px;margin:auto;height:64px;display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid #ddd6c9}
+.bw-reader-top>span{font:650 12px Manrope;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;color:#625d56}
+.bw-reader-top button{flex-shrink:0;border:0;background:none;color:#413d39;font-size:23px;cursor:pointer}
+.bw-reader-controls{display:flex;align-items:center;justify-content:space-between;max-width:750px;margin:12px auto 0;font:750 11px Manrope}
+.bw-reader-controls select{margin-left:6px;border:1px solid #d9d4cc;background:#fff;border-radius:7px;padding:7px;color:#292723}
+.bw-reader-controls button{border:1px solid #d9d4cc;border-radius:999px;background:#fff;padding:9px 15px;font-weight:750}
+.bw-reader-article{max-width:670px;margin:53px auto 45px;color:#272520;font-family:Literata,"Noto Serif Ethiopic",Georgia,serif;font-size:17px;line-height:1.9}
+.bw-reader-eyebrow{text-align:center;font:800 10px Manrope!important;letter-spacing:.16em;color:#92877d;text-transform:uppercase}
+.bw-reader-article h1{text-align:center;font:650 clamp(24px,5vw,40px)/1.25 "Bodoni Moda","Noto Serif Ethiopic",Georgia,serif;margin:12px auto 32px}
+.bw-reader-prose p{margin:0 0 1.35em;text-align:justify;hyphens:auto}
+.bw-reader-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;max-width:670px;margin:0 auto;border-top:1px solid #ddd6c9;padding:25px 0;font:700 12px Manrope;color:#777}
+.bw-reader-footer button{border:1px solid #d2cdc4;background:transparent;border-radius:99px;padding:10px 14px;color:#454039}.bw-reader-footer button:disabled{opacity:.3}
+#bwProfilePage{position:relative;z-index:2;background:var(--background);color:var(--foreground);min-height:calc(100vh - 160px);font-family:Manrope;max-width:1150px;margin:auto;padding:34px 21px 90px}
+body.bw-profile-active #root main,body.bw-profile-active #root footer{display:none!important}
+.bw-profile{max-width:750px;margin:auto}.bw-profile h1{font:600 clamp(36px,8vw,57px) "Bodoni Moda",Georgia,serif}.bw-profile p{font:12px/1.7 Manrope;color:var(--muted-foreground)}
+.bw-profile-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:28px}
+.bw-profile-cards button{text-align:left;display:grid;gap:8px;border:1px solid var(--border);background:var(--card);color:var(--foreground);border-radius:16px;padding:18px;cursor:pointer;transition:transform .2s,box-shadow .2s}
+.bw-profile-cards button:hover{transform:translateY(-2px);box-shadow:0 8px 30px #0000000d}.bw-profile-cards span{font-size:24px}.bw-profile-cards strong{font-size:13px}.bw-profile-cards small{font-size:10px;opacity:.6}
+/* Dark mode uses native design tokens from the original app; reading stays its original theme. */
+:root.bw-dark{--background:oklch(17% .005 65);--foreground:oklch(94% .003 80);--card:oklch(23% .005 65);--card-foreground:oklch(94% .003 80);--popover:oklch(25% .005 65);--popover-foreground:oklch(94% .003 80);--primary:oklch(90% .004 75);--primary-foreground:oklch(17% .005 65);--secondary:oklch(29% .005 65);--secondary-foreground:oklch(94% .003 80);--muted:oklch(27% .005 65);--muted-foreground:oklch(72% .004 65);--border:oklch(34% .005 65);--input:oklch(34% .005 65);--ring:oklch(65% .01 65)}
+:root.bw-dark body,:root.bw-dark body.bw-homepage,:root.bw-dark body.bw-homepage #root main,:root.bw-dark body.bw-homepage .bw-hero{background:#20201f!important;color:#f7f4ed}
+:root.bw-dark .bw-hero,:root.bw-dark .bw-feature-title,:root.bw-dark .bw-hero-eyebrow,:root.bw-dark .bw-feature-meta,:root.bw-dark .bw-feature-desc{color:#eeeae2!important}
+:root.bw-dark .bw-header-tool,:root.bw-dark .bw-nav-top a[aria-current="page"]{background:#343432;color:#eee}
+:root.bw-dark .bw-modal,:root.bw-dark .bw-chapter-editor,:root.bw-dark .bw-full-paste{background:#2a2927!important;color:#f1ece4!important}
+:root.bw-dark .bw-modal input,:root.bw-dark .bw-modal select,:root.bw-dark .bw-modal textarea,:root.bw-dark .bw-modal button:not(.primary){background:#363432;color:#eee;border-color:#55514d}
+:root.bw-dark .bw-modal p,:root.bw-dark .bw-modal h2,:root.bw-dark .bw-modal h3,:root.bw-dark .bw-modal label,:root.bw-dark .bw-modal strong{color:#eee}
+:root.bw-dark .bw-feature-actions .bw-alt-action{background:#2b2926;color:#f5f0ea;border-color:#5b5650}
+:root.bw-dark #bwCustomReader{background:#252420;color:#eee}
+:root.bw-dark .bw-reader-article,:root.bw-dark .bw-reader-top button,:root.bw-dark .bw-reader-footer button{color:#eee}
+@media(max-width:600px){.bw-profile-cards{gap:9px}.bw-profile-cards button{padding:15px}.bw-modal{max-height:92dvh}.bw-cover-input{gap:10px}.bw-cover-preview{width:87px}.bw-v3-section .bw-setting select{min-width:110px;max-width:140px}.bw-feature{margin-top:-9px}}
